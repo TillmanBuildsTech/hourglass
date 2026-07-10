@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hourglass — Crontab Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .status-success { @apply text-green-600; }
+        .status-failed { @apply text-red-600; }
+        .status-never { @apply text-gray-400; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="max-w-6xl mx-auto py-8 px-4">
+        <h1 class="text-4xl font-bold text-gray-900 mb-2">Hourglass</h1>
+        <p class="text-gray-600 mb-8">Self-hosted crontab manager</p>
+
+        <div id="error-banner" class="hidden mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-xl font-semibold text-gray-900">Cron Jobs</h2>
+                    </div>
+                    <div id="jobs-container" class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Schedule</th>
+                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Command</th>
+                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Last Run</th>
+                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                                    <th class="px-6 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="jobs-table" class="divide-y divide-gray-200">
+                                <tr class="text-center py-8">
+                                    <td colspan="5" class="px-6 py-12 text-gray-500">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Add New Job</h3>
+                    <form id="add-job-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Schedule (cron format)</label>
+                            <input type="text" id="schedule-input" placeholder="0 9 * * *" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required>
+                            <p class="text-xs text-gray-500 mt-1">minute hour day month weekday</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Command</label>
+                            <input type="text" id="command-input" placeholder="/usr/bin/backup.sh" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Comment (optional)</label>
+                            <input type="text" id="comment-input" placeholder="Daily backup" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Add Job</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-lg p-6 max-w-sm">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete Job?</h3>
+            <p class="text-gray-600 mb-6">This action cannot be undone.</p>
+            <div class="flex gap-2">
+                <button id="delete-cancel" class="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="delete-confirm" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let jobs = [];
+        let deleteIndex = -1;
+
+        async function loadJobs() {
+            try {
+                const resp = await fetch('/api/cron');
+                if (!resp.ok) throw new Error('Failed to load jobs');
+                jobs = await resp.json() || [];
+                renderJobs();
+                clearError();
+            } catch (err) {
+                showError('Failed to load cron jobs: ' + err.message);
+            }
+        }
+
+        function formatRelativeTime(timestamp) {
+            if (!timestamp) return 'Never';
+
+            const now = Date.now();
+            const diff = now - timestamp;
+            const seconds = Math.floor(diff / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+
+            if (seconds < 60) return `${seconds}s ago`;
+            if (minutes < 60) return `${minutes}m ago`;
+            if (hours < 24) return `${hours}h ago`;
+            return `${days}d ago`;
+        }
+
+        function renderJobs() {
+            const tbody = document.getElementById('jobs-table');
+            if (jobs.length === 0) {
+                tbody.innerHTML = '<tr class="text-center"><td colspan="5" class="px-6 py-12 text-gray-500">No cron jobs</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = jobs.map((job, idx) => {
+                const lastRun = formatRelativeTime(job.LastRun);
+                const statusClass = !job.LastRun ? 'status-never' : (job.LastStatus === 'success' ? 'status-success' : 'status-failed');
+                const statusText = !job.LastRun ? '-' : (job.LastStatus === 'success' ? '✓' : '✗');
+
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 text-sm font-mono text-gray-900">${job.Schedule}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900 truncate">${job.Command}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600">${lastRun}</td>
+                        <td class="px-6 py-4 text-sm font-semibold ${statusClass}">${statusText}</td>
+                        <td class="px-6 py-4 text-sm text-right space-x-2">
+                            <button onclick="editJob(${idx})" class="text-blue-600 hover:text-blue-900">Edit</button>
+                            <button onclick="deleteJob(${idx})" class="text-red-600 hover:text-red-900">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function editJob(idx) {
+            const job = jobs[idx];
+            document.getElementById('schedule-input').value = job.Schedule;
+            document.getElementById('command-input').value = job.Command;
+            document.getElementById('comment-input').value = job.Comment || '';
+            document.getElementById('schedule-input').focus();
+            // In a full implementation, we'd track the index and update instead of adding
+        }
+
+        function deleteJob(idx) {
+            deleteIndex = idx;
+            document.getElementById('delete-modal').classList.remove('hidden');
+        }
+
+        document.getElementById('delete-cancel').addEventListener('click', () => {
+            deleteIndex = -1;
+            document.getElementById('delete-modal').classList.add('hidden');
+        });
+
+        document.getElementById('delete-confirm').addEventListener('click', async () => {
+            if (deleteIndex < 0) return;
+
+            try {
+                const resp = await fetch('/api/cron', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: deleteIndex })
+                });
+
+                if (!resp.ok) throw new Error('Failed to delete job');
+
+                deleteIndex = -1;
+                document.getElementById('delete-modal').classList.add('hidden');
+                await loadJobs();
+            } catch (err) {
+                showError('Failed to delete job: ' + err.message);
+            }
+        });
+
+        document.getElementById('add-job-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const schedule = document.getElementById('schedule-input').value;
+            const command = document.getElementById('command-input').value;
+            const comment = document.getElementById('comment-input').value;
+
+            try {
+                const resp = await fetch('/api/cron', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ Schedule: schedule, Command: command, Comment: comment })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.error || 'Failed to add job');
+                }
+
+                document.getElementById('add-job-form').reset();
+                await loadJobs();
+            } catch (err) {
+                showError('Failed to add job: ' + err.message);
+            }
+        });
+
+        function showError(msg) {
+            const banner = document.getElementById('error-banner');
+            banner.textContent = msg;
+            banner.classList.remove('hidden');
+        }
+
+        function clearError() {
+            document.getElementById('error-banner').classList.add('hidden');
+        }
+
+        loadJobs();
+        setInterval(loadJobs, 30000);
+    </script>
+</body>
+</html>
