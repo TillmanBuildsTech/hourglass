@@ -51,7 +51,7 @@
             </div>
 
             <div id="add-connection-form" class="hidden bg-gray-50 p-4 rounded border border-gray-200">
-                <h3 class="text-sm font-semibold text-gray-700 mb-3">Add New Connection</h3>
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Add SSH Connection</h3>
                 <div class="space-y-3">
                     <div>
                         <label class="block text-xs font-medium text-gray-700 mb-1">Hostname or IP</label>
@@ -59,17 +59,28 @@
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Port</label>
-                            <input type="number" id="conn-port" placeholder="8080" value="8080" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">SSH Port</label>
+                            <input type="number" id="conn-port" placeholder="22" value="22" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Label (optional)</label>
-                            <input type="text" id="conn-label" placeholder="Production" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Username</label>
+                            <input type="text" id="conn-user" placeholder="ubuntu" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
                         </div>
                     </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">SSH Key Path</label>
+                        <input type="text" id="conn-keypath" placeholder="~/.ssh/id_rsa" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                        <p class="text-xs text-gray-500 mt-1">e.g., ~/.ssh/id_rsa or /home/user/.ssh/id_rsa</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Label (optional)</label>
+                        <input type="text" id="conn-label" placeholder="Production Server" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                    </div>
+                    <div id="conn-test-status" class="text-xs text-gray-600"></div>
                     <div class="flex gap-2">
-                        <button id="conn-save" class="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Save</button>
-                        <button id="conn-cancel" class="flex-1 px-3 py-2 bg-gray-300 text-gray-900 text-sm rounded hover:bg-gray-400">Cancel</button>
+                        <button id="conn-test" type="button" class="flex-1 px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">Test Connection</button>
+                        <button id="conn-save" type="button" class="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Save</button>
+                        <button id="conn-cancel" type="button" class="flex-1 px-3 py-2 bg-gray-300 text-gray-900 text-sm rounded hover:bg-gray-400">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -150,13 +161,9 @@
         let currentConnection = { host: 'localhost', port: 8080 };
 
         // Connection Management
-        function getConnectionKey() {
-            return `${currentConnection.host}:${currentConnection.port}`;
-        }
-
         function initConnections() {
             detectLocalBinding();
-            loadSavedConnections();
+            loadConnections();
             updateConnectionDisplay();
         }
 
@@ -173,76 +180,161 @@
             }
         }
 
-        function loadSavedConnections() {
-            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
-            if (saved.length > 0) {
-                document.getElementById('saved-connections').classList.remove('hidden');
-                const items = document.getElementById('connections-items');
-                items.innerHTML = saved.map((conn, idx) => `
-                    <div class="p-3 bg-white border border-gray-200 rounded flex justify-between items-center">
-                        <div>
-                            <p class="text-sm font-medium text-gray-900">${conn.label || conn.host}</p>
-                            <p class="text-xs text-gray-600">${conn.host}:${conn.port}</p>
+        async function loadConnections() {
+            try {
+                const resp = await fetch('/api/connections');
+                if (!resp.ok) return;
+
+                const data = await resp.json();
+                if (data.connections && data.connections.length > 0) {
+                    document.getElementById('saved-connections').classList.remove('hidden');
+                    const items = document.getElementById('connections-items');
+                    items.innerHTML = data.connections.map((conn) => `
+                        <div class="p-3 bg-white border border-gray-200 rounded flex justify-between items-center">
+                            <div>
+                                <p class="text-sm font-medium text-gray-900">${conn.label || conn.host}</p>
+                                <p class="text-xs text-gray-600">${conn.user}@${conn.host}:${conn.port}</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="switchConnection('${conn.id}')" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>
+                                <button onclick="removeConnection('${conn.id}')" class="text-xs text-red-600 hover:text-red-900">Remove</button>
+                            </div>
                         </div>
-                        <div class="flex gap-2">
-                            <button onclick="switchConnection(${idx})" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>
-                            <button onclick="removeConnection(${idx})" class="text-xs text-red-600 hover:text-red-900">Remove</button>
-                        </div>
-                    </div>
-                `).join('');
+                    `).join('');
+                }
+            } catch (err) {
+                console.error('Failed to load connections:', err);
             }
         }
 
         function updateConnectionDisplay() {
-            const display = `${currentConnection.host}:${currentConnection.port}`;
+            const display = isLocalOnly ? 'Local' : 'Local';
             document.getElementById('connection-status').textContent = display;
-            document.getElementById('current-conn-display').textContent = `${display} ${isLocalOnly ? '(local)' : ''}`;
+            document.getElementById('current-conn-display').textContent = `${display} (local)`;
         }
 
-        function switchConnection(idx) {
-            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
-            if (idx < saved.length) {
-                const conn = saved[idx];
-                currentConnection = { host: conn.host, port: conn.port };
-                updateConnectionDisplay();
+        async function switchConnection(connId) {
+            try {
+                const resp = await fetch('/api/connections/active', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: connId })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showError('Failed to switch connection: ' + err.error);
+                    return;
+                }
+
                 document.getElementById('connections-panel').classList.add('hidden');
-                loadJobs();
+                await loadJobs();
+                showError('Connected to ' + connId);
+            } catch (err) {
+                showError('Failed to switch connection: ' + err.message);
             }
         }
 
-        function removeConnection(idx) {
-            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
-            saved.splice(idx, 1);
-            localStorage.setItem('hourglass_connections', JSON.stringify(saved));
-            loadSavedConnections();
+        async function removeConnection(connId) {
+            try {
+                const resp = await fetch('/api/connections', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: connId })
+                });
+
+                if (!resp.ok) throw new Error('Failed to delete connection');
+                await loadConnections();
+            } catch (err) {
+                showError('Failed to remove connection: ' + err.message);
+            }
         }
 
-        function saveConnection() {
+        async function testConnection() {
+            const host = document.getElementById('conn-host').value.trim();
+            const port = parseInt(document.getElementById('conn-port').value) || 22;
+            const user = document.getElementById('conn-user').value.trim();
+            const keyPath = document.getElementById('conn-keypath').value.trim();
+            const statusEl = document.getElementById('conn-test-status');
+
+            if (!host || !user || !keyPath) {
+                statusEl.textContent = '❌ Please fill in all fields';
+                statusEl.className = 'text-xs text-red-600 mt-1';
+                return;
+            }
+
+            statusEl.textContent = '⏳ Testing...';
+            statusEl.className = 'text-xs text-gray-600 mt-1';
+
+            try {
+                const resp = await fetch('/api/connections/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ host, port, user, key_path: keyPath })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    statusEl.textContent = '❌ ' + err.error;
+                    statusEl.className = 'text-xs text-red-600 mt-1';
+                    return;
+                }
+
+                statusEl.textContent = '✓ Connection successful';
+                statusEl.className = 'text-xs text-green-600 mt-1';
+            } catch (err) {
+                statusEl.textContent = '❌ ' + err.message;
+                statusEl.className = 'text-xs text-red-600 mt-1';
+            }
+        }
+
+        async function saveConnection() {
             if (isLocalOnly) {
                 showError('Cannot add remote connections when running locally');
                 return;
             }
 
             const host = document.getElementById('conn-host').value.trim();
-            const port = parseInt(document.getElementById('conn-port').value) || 8080;
+            const port = parseInt(document.getElementById('conn-port').value) || 22;
+            const user = document.getElementById('conn-user').value.trim();
+            const keyPath = document.getElementById('conn-keypath').value.trim();
             const label = document.getElementById('conn-label').value.trim();
 
-            if (!host) {
-                showError('Hostname is required');
+            if (!host || !user || !keyPath) {
+                showError('Hostname, username, and key path are required');
                 return;
             }
 
-            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
-            saved.push({ host, port, label });
-            localStorage.setItem('hourglass_connections', JSON.stringify(saved));
+            const id = `${host}-${user}-${Date.now()}`;
 
-            document.getElementById('conn-host').value = '';
-            document.getElementById('conn-port').value = '8080';
-            document.getElementById('conn-label').value = '';
-            document.getElementById('add-connection-form').classList.add('hidden');
-            document.getElementById('add-conn-btn').style.display = 'block';
+            try {
+                const resp = await fetch('/api/connections', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id, host, port, user, key_path: keyPath, label
+                    })
+                });
 
-            loadSavedConnections();
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showError('Failed to save connection: ' + err.error);
+                    return;
+                }
+
+                document.getElementById('conn-host').value = '';
+                document.getElementById('conn-port').value = '22';
+                document.getElementById('conn-user').value = '';
+                document.getElementById('conn-keypath').value = '';
+                document.getElementById('conn-label').value = '';
+                document.getElementById('conn-test-status').textContent = '';
+                document.getElementById('add-connection-form').classList.add('hidden');
+                document.getElementById('add-conn-btn').style.display = 'block';
+
+                await loadConnections();
+            } catch (err) {
+                showError('Failed to save connection: ' + err.message);
+            }
         }
 
         // Connection UI handlers
@@ -259,11 +351,13 @@
             document.getElementById('add-conn-btn').style.display = 'none';
         });
 
+        document.getElementById('conn-test').addEventListener('click', testConnection);
         document.getElementById('conn-save').addEventListener('click', saveConnection);
 
         document.getElementById('conn-cancel').addEventListener('click', () => {
             document.getElementById('add-connection-form').classList.add('hidden');
             document.getElementById('add-conn-btn').style.display = 'block';
+            document.getElementById('conn-test-status').textContent = '';
         });
 
         // Jobs Management

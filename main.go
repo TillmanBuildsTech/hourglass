@@ -8,7 +8,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/TillmanBuildsTech/hourglass/connection"
 	"github.com/TillmanBuildsTech/hourglass/cron"
+	sshclient "github.com/TillmanBuildsTech/hourglass/ssh"
 )
 
 //go:embed ui/index.html
@@ -32,13 +34,23 @@ type DeleteRequest struct {
 }
 
 var cronManager *cron.Manager
+var connManager *connection.Manager
 
 func main() {
+	var err error
+	connManager, err = connection.NewManager("")
+	if err != nil {
+		log.Fatalf("Failed to initialize connection manager: %v", err)
+	}
+
 	cronManager = cron.NewManager()
 	cronManager.StartHistoryRefresh()
 
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/api/cron", handleCron)
+	http.HandleFunc("/api/connections", handleConnections)
+	http.HandleFunc("/api/connections/active", handleConnectionActive)
+	http.HandleFunc("/api/connections/test", handleConnectionTest)
 
 	addr := os.Getenv("HOURGLASS_BIND")
 	if addr == "" {
@@ -156,4 +168,177 @@ func handleDeleteCron(w http.ResponseWriter, r *http.Request) {
 func toJSON(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func handleConnections(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		handleGetConnections(w, r)
+	case "POST":
+		handleCreateConnection(w, r)
+	case "DELETE":
+		handleDeleteConnection(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleGetConnections(w http.ResponseWriter, r *http.Request) {
+	configs := connManager.ListConnections()
+	activeID := connManager.GetActiveID()
+
+	type response struct {
+		Connections []*connection.Config `json:"connections"`
+		ActiveID    string               `json:"active_id"`
+	}
+
+	w.Write([]byte(toJSON(response{
+		Connections: configs,
+		ActiveID:    activeID,
+	})))
+}
+
+func handleCreateConnection(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID      string `json:"id"`
+		Label   string `json:"label"`
+		Host    string `json:"host"`
+		Port    int    `json:"port"`
+		User    string `json:"user"`
+		KeyPath string `json:"key_path"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	cfg := &connection.Config{
+		ID:      req.ID,
+		Label:   req.Label,
+		Host:    req.Host,
+		Port:    req.Port,
+		User:    req.User,
+		KeyPath: req.KeyPath,
+	}
+
+	if err := connManager.AddConnection(cfg); err != nil {
+		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
+}
+
+func handleDeleteConnection(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	if err := connManager.RemoveConnection(req.ID); err != nil {
+		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+		return
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
+}
+
+func handleConnectionActive(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		handleGetActiveConnection(w, r)
+	case "POST":
+		handleSetActiveConnection(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleGetActiveConnection(w http.ResponseWriter, r *http.Request) {
+	cfg := connManager.GetActive()
+	if cfg == nil {
+		w.Write([]byte("null"))
+		return
+	}
+	w.Write([]byte(toJSON(cfg)))
+}
+
+func handleSetActiveConnection(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	if err := connManager.SetActive(req.ID); err != nil {
+		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+		return
+	}
+
+	cfg := connManager.GetActive()
+	if cfg != nil && !cfg.IsLocal {
+		if err := switchToRemoteConnection(cfg); err != nil {
+			http.Error(w, toJSON(APIError{err.Error()}), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		cronManager.SetExecutor(&cron.LocalExecutor{})
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
+}
+
+func handleConnectionTest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Host    string `json:"host"`
+		Port    int    `json:"port"`
+		User    string `json:"user"`
+		KeyPath string `json:"key_path"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	if err := sshclient.TestConnection(req.Host, req.Port, req.User, req.KeyPath); err != nil {
+		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+		return
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
+}
+
+func switchToRemoteConnection(cfg *connection.Config) error {
+	client, err := sshclient.NewClient(cfg.Host, cfg.Port, cfg.User, cfg.KeyPath)
+	if err != nil {
+		return err
+	}
+
+	if err := client.Connect(); err != nil {
+		return err
+	}
+
+	cronManager.SetExecutor(client)
+	return nil
 }

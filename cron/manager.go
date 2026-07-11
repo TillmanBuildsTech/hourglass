@@ -7,39 +7,70 @@ import (
 	"time"
 )
 
+type Executor interface {
+	Execute(command string) (string, error)
+}
+
+type LocalExecutor struct{}
+
+func (e *LocalExecutor) Execute(command string) (string, error) {
+	if command == "crontab -l" {
+		cmd := exec.Command("crontab", "-l")
+		output, err := cmd.Output()
+		if err != nil {
+			if strings.Contains(err.Error(), "exit status 1") {
+				return "", fmt.Errorf("no crontab found or permission denied")
+			}
+			return "", fmt.Errorf("failed to read crontab: %w", err)
+		}
+		return string(output), nil
+	}
+
+	if strings.HasPrefix(command, "crontab -") {
+		cmd := exec.Command("sh", "-c", command)
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to write crontab: %w", err)
+		}
+		return "", nil
+	}
+
+	cmd := exec.Command("sh", "-c", command)
+	output, err := cmd.Output()
+	return string(output), err
+}
+
 type Manager struct {
-	cache *HistoryCache
+	executor Executor
+	cache    *HistoryCache
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		cache: NewHistoryCache(30 * time.Second),
+		executor: &LocalExecutor{},
+		cache:    NewHistoryCache(30 * time.Second),
 	}
 }
 
-func (m *Manager) ReadCrontab() (string, error) {
-	cmd := exec.Command("crontab", "-l")
-	output, err := cmd.Output()
-	if err != nil {
-		if strings.Contains(err.Error(), "exit status 1") {
-			return "", fmt.Errorf("no crontab found or permission denied")
-		}
-		return "", fmt.Errorf("failed to read crontab: %w", err)
+func NewManagerWithExecutor(executor Executor) *Manager {
+	return &Manager{
+		executor: executor,
+		cache:    NewHistoryCache(30 * time.Second),
 	}
-	return string(output), nil
+}
+
+func (m *Manager) SetExecutor(executor Executor) {
+	m.executor = executor
+}
+
+func (m *Manager) ReadCrontab() (string, error) {
+	return m.executor.Execute("crontab -l")
 }
 
 func (m *Manager) WriteCrontab(entries []Entry) error {
 	text := StringifyCrontab(entries)
-
-	cmd := exec.Command("crontab", "-")
-	cmd.Stdin = strings.NewReader(text)
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to write crontab: %w", err)
-	}
-
-	return nil
+	cmd := fmt.Sprintf("crontab - << 'EOF'\n%s\nEOF", text)
+	_, err := m.executor.Execute(cmd)
+	return err
 }
 
 func (m *Manager) GetEntries() ([]Entry, error) {
