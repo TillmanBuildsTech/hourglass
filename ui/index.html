@@ -14,10 +14,68 @@
 </head>
 <body class="bg-gray-50">
     <div class="max-w-6xl mx-auto py-8 px-4">
-        <h1 class="text-4xl font-bold text-gray-900 mb-2">Hourglass</h1>
-        <p class="text-gray-600 mb-8">Self-hosted crontab manager</p>
+        <div class="flex justify-between items-start mb-8">
+            <div>
+                <h1 class="text-4xl font-bold text-gray-900 mb-2">Hourglass</h1>
+                <p class="text-gray-600">Self-hosted crontab manager</p>
+            </div>
+            <div class="text-right">
+                <p class="text-sm text-gray-600">Connected to:</p>
+                <p id="connection-status" class="text-sm font-mono text-blue-600">localhost:8080</p>
+                <button id="connections-toggle" class="text-xs text-blue-600 hover:text-blue-900 mt-1">Manage Connections</button>
+            </div>
+        </div>
 
         <div id="error-banner" class="hidden mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded"></div>
+
+        <div id="connections-panel" class="hidden mb-8 bg-white rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">Connection Manager</h2>
+                <button id="connections-close" class="text-gray-600 hover:text-gray-900">✕</button>
+            </div>
+
+            <div id="local-only-message" class="hidden mb-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded">
+                This instance is running locally and cannot connect to remote servers. For remote access, use SSH tunneling: <code class="bg-blue-100 px-1 rounded">ssh -L 8080:localhost:8080 user@server</code>
+            </div>
+
+            <div id="connections-list" class="space-y-3 mb-6">
+                <div id="current-connection" class="p-4 bg-blue-50 border border-blue-200 rounded">
+                    <p class="text-sm font-semibold text-blue-900">Current Connection</p>
+                    <p id="current-conn-display" class="text-sm text-blue-700 font-mono mt-1">localhost:8080 (local)</p>
+                </div>
+            </div>
+
+            <div id="saved-connections" class="hidden">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Saved Connections</h3>
+                <div id="connections-items" class="space-y-2 mb-4"></div>
+            </div>
+
+            <div id="add-connection-form" class="hidden bg-gray-50 p-4 rounded border border-gray-200">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Add New Connection</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Hostname or IP</label>
+                        <input type="text" id="conn-host" placeholder="server.example.com" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Port</label>
+                            <input type="number" id="conn-port" placeholder="8080" value="8080" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Label (optional)</label>
+                            <input type="text" id="conn-label" placeholder="Production" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="conn-save" class="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Save</button>
+                        <button id="conn-cancel" class="flex-1 px-3 py-2 bg-gray-300 text-gray-900 text-sm rounded hover:bg-gray-400">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="add-conn-btn" class="text-sm text-blue-600 hover:text-blue-900">+ Add Connection</button>
+        </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div class="lg:col-span-2">
@@ -48,7 +106,7 @@
 
             <div class="lg:col-span-1">
                 <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Add New Job</h3>
+                    <h3 id="form-title" class="text-lg font-semibold text-gray-900 mb-4">Add New Job</h3>
                     <form id="add-job-form" class="space-y-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Schedule (cron format)</label>
@@ -63,7 +121,10 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">Comment (optional)</label>
                             <input type="text" id="comment-input" placeholder="Daily backup" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                         </div>
-                        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Add Job</button>
+                        <div class="flex gap-2">
+                            <button id="submit-btn" type="submit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Add Job</button>
+                            <button id="cancel-edit-btn" type="button" class="hidden flex-1 bg-gray-300 text-gray-900 py-2 rounded-lg font-medium hover:bg-gray-400">Cancel</button>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -84,7 +145,128 @@
     <script>
         let jobs = [];
         let deleteIndex = -1;
+        let editIndex = -1;
+        let isLocalOnly = false;
+        let currentConnection = { host: 'localhost', port: 8080 };
 
+        // Connection Management
+        function getConnectionKey() {
+            return `${currentConnection.host}:${currentConnection.port}`;
+        }
+
+        function initConnections() {
+            detectLocalBinding();
+            loadSavedConnections();
+            updateConnectionDisplay();
+        }
+
+        function detectLocalBinding() {
+            const host = window.location.hostname;
+            isLocalOnly = host === 'localhost' || host === '127.0.0.1';
+
+            if (isLocalOnly) {
+                document.getElementById('local-only-message').classList.remove('hidden');
+                document.getElementById('add-conn-btn').style.display = 'none';
+            } else {
+                document.getElementById('local-only-message').classList.add('hidden');
+                document.getElementById('add-conn-btn').style.display = 'block';
+            }
+        }
+
+        function loadSavedConnections() {
+            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
+            if (saved.length > 0) {
+                document.getElementById('saved-connections').classList.remove('hidden');
+                const items = document.getElementById('connections-items');
+                items.innerHTML = saved.map((conn, idx) => `
+                    <div class="p-3 bg-white border border-gray-200 rounded flex justify-between items-center">
+                        <div>
+                            <p class="text-sm font-medium text-gray-900">${conn.label || conn.host}</p>
+                            <p class="text-xs text-gray-600">${conn.host}:${conn.port}</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="switchConnection(${idx})" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>
+                            <button onclick="removeConnection(${idx})" class="text-xs text-red-600 hover:text-red-900">Remove</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function updateConnectionDisplay() {
+            const display = `${currentConnection.host}:${currentConnection.port}`;
+            document.getElementById('connection-status').textContent = display;
+            document.getElementById('current-conn-display').textContent = `${display} ${isLocalOnly ? '(local)' : ''}`;
+        }
+
+        function switchConnection(idx) {
+            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
+            if (idx < saved.length) {
+                const conn = saved[idx];
+                currentConnection = { host: conn.host, port: conn.port };
+                updateConnectionDisplay();
+                document.getElementById('connections-panel').classList.add('hidden');
+                loadJobs();
+            }
+        }
+
+        function removeConnection(idx) {
+            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
+            saved.splice(idx, 1);
+            localStorage.setItem('hourglass_connections', JSON.stringify(saved));
+            loadSavedConnections();
+        }
+
+        function saveConnection() {
+            if (isLocalOnly) {
+                showError('Cannot add remote connections when running locally');
+                return;
+            }
+
+            const host = document.getElementById('conn-host').value.trim();
+            const port = parseInt(document.getElementById('conn-port').value) || 8080;
+            const label = document.getElementById('conn-label').value.trim();
+
+            if (!host) {
+                showError('Hostname is required');
+                return;
+            }
+
+            const saved = JSON.parse(localStorage.getItem('hourglass_connections') || '[]');
+            saved.push({ host, port, label });
+            localStorage.setItem('hourglass_connections', JSON.stringify(saved));
+
+            document.getElementById('conn-host').value = '';
+            document.getElementById('conn-port').value = '8080';
+            document.getElementById('conn-label').value = '';
+            document.getElementById('add-connection-form').classList.add('hidden');
+            document.getElementById('add-conn-btn').style.display = 'block';
+
+            loadSavedConnections();
+        }
+
+        // Connection UI handlers
+        document.getElementById('connections-toggle').addEventListener('click', () => {
+            document.getElementById('connections-panel').classList.toggle('hidden');
+        });
+
+        document.getElementById('connections-close').addEventListener('click', () => {
+            document.getElementById('connections-panel').classList.add('hidden');
+        });
+
+        document.getElementById('add-conn-btn').addEventListener('click', () => {
+            document.getElementById('add-connection-form').classList.remove('hidden');
+            document.getElementById('add-conn-btn').style.display = 'none';
+        });
+
+        document.getElementById('conn-save').addEventListener('click', saveConnection);
+
+        document.getElementById('conn-cancel').addEventListener('click', () => {
+            document.getElementById('add-connection-form').classList.add('hidden');
+            document.getElementById('add-conn-btn').style.display = 'block';
+        });
+
+        // Jobs Management
         async function loadJobs() {
             try {
                 const resp = await fetch('/api/cron');
@@ -141,18 +323,34 @@
         }
 
         function editJob(idx) {
+            editIndex = idx;
             const job = jobs[idx];
             document.getElementById('schedule-input').value = job.Schedule;
             document.getElementById('command-input').value = job.Command;
             document.getElementById('comment-input').value = job.Comment || '';
+            document.getElementById('form-title').textContent = 'Update Job';
+            document.getElementById('submit-btn').textContent = 'Update Job';
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
             document.getElementById('schedule-input').focus();
-            // In a full implementation, we'd track the index and update instead of adding
+        }
+
+        function cancelEdit() {
+            editIndex = -1;
+            document.getElementById('add-job-form').reset();
+            document.getElementById('form-title').textContent = 'Add New Job';
+            document.getElementById('submit-btn').textContent = 'Add Job';
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
         }
 
         function deleteJob(idx) {
             deleteIndex = idx;
             document.getElementById('delete-modal').classList.remove('hidden');
         }
+
+        document.getElementById('cancel-edit-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            cancelEdit();
+        });
 
         document.getElementById('delete-cancel').addEventListener('click', () => {
             deleteIndex = -1;
@@ -187,6 +385,17 @@
             const comment = document.getElementById('comment-input').value;
 
             try {
+                if (editIndex >= 0) {
+                    // Delete old job first, then add new one
+                    const deleteResp = await fetch('/api/cron', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ index: editIndex })
+                    });
+
+                    if (!deleteResp.ok) throw new Error('Failed to delete old job');
+                }
+
                 const resp = await fetch('/api/cron', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -195,13 +404,14 @@
 
                 if (!resp.ok) {
                     const err = await resp.json();
-                    throw new Error(err.error || 'Failed to add job');
+                    throw new Error(err.error || 'Failed to save job');
                 }
 
                 document.getElementById('add-job-form').reset();
+                cancelEdit();
                 await loadJobs();
             } catch (err) {
-                showError('Failed to add job: ' + err.message);
+                showError('Failed to save job: ' + err.message);
             }
         });
 
@@ -215,6 +425,7 @@
             document.getElementById('error-banner').classList.add('hidden');
         }
 
+        initConnections();
         loadJobs();
         setInterval(loadJobs, 30000);
     </script>

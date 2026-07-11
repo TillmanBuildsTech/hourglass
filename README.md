@@ -8,6 +8,7 @@
 - ⏱️ **See when each job last ran** (from system logs)
 - ✅ **View exit status** — success or failure at a glance
 - ✏️ **Add/edit/delete jobs** through the web UI
+- 🌐 **Connection manager** — manage multiple Hourglass instances from one place
 - 🔒 **No external dependencies** — single binary, runs anywhere
 - 🚀 **Auto-parse system logs** — no setup required
 - 📱 **Responsive design** — works on desktop and mobile
@@ -98,13 +99,60 @@ sudo systemctl status hourglass
 sudo systemctl logs -u hourglass -f
 ```
 
-### Remote Access via SSH Tunnel
+## Connection Manager
 
-If Hourglass is running on a remote server (only listening locally):
+Hourglass includes a built-in connection manager for accessing multiple Hourglass instances from a single UI.
+
+### For Local-Only Instances
+
+When Hourglass is running on `127.0.0.1` or `localhost`, the connection manager only shows the local connection and prevents adding remote connections. This is the default for local development or SSH tunnel access (see below).
+
+### For Remote-Capable Instances
+
+When Hourglass is bound to `0.0.0.0` or a specific hostname, you can add and manage multiple server connections:
+
+1. Click "Manage Connections" in the top-right corner
+2. Click "+ Add Connection"
+3. Enter the hostname/IP, port, and optional label
+4. Click "Save" to store the connection
+5. Use "Connect" to switch between saved connections
+
+**Note:** Only one connection can be active at a time. The UI will reload when you switch connections.
+
+### SSH Tunneling for Remote Access
+
+For secure remote access, use SSH port forwarding. This is the recommended approach for accessing Hourglass from outside your network:
 
 ```bash
 ssh -L 8080:localhost:8080 user@remote-server
-# Then visit http://localhost:8080 on your local machine
+```
+
+Then visit `http://localhost:8080` on your local machine.
+
+**Advantages:**
+- Secure encrypted connection
+- No need to expose Hourglass to the internet
+- Can run Hourglass on localhost without remote binding
+- Works with key-based authentication
+
+**For systemd-managed instances:**
+
+Create an SSH tunnel helper script:
+
+```bash
+#!/bin/bash
+ssh -L 8080:localhost:8080 user@remote-server
+```
+
+Then use it in your local shell profile or automation.
+
+**With Authentication:**
+
+If you've configured basic auth on Hourglass:
+
+```bash
+ssh -L 8080:localhost:8080 user@remote-server
+# Visit http://localhost:8080 and enter credentials
 ```
 
 ## Configuration
