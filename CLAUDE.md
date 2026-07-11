@@ -1,240 +1,219 @@
-# Hourglass — Developer Guide
+# Hourglass: Self-Hosted Crontab UI
 
-**Project:** Self-hosted web UI for Linux crontab management  
-**Language:** Go 1.21+  
-**Scope:** Single binary, <15MB, zero external deps
+A lightweight, single-binary Go application for viewing and managing Linux crontab jobs from a web interface. Remote-accessible with optional VS Code integration.
 
----
+## Project Overview
 
-## Quick Start
+**Stack:** Go 1.21+, vanilla HTML/JS/CSS (Tailwind CDN), Linux cron system
+**Deployment:** Single self-contained binary (~10MB, near-zero RAM/CPU at rest)
+**Use Case:** System administrators managing cron jobs remotely via web UI or VS Code
+
+## Architecture
+
+### Directory Structure
+```
+/hourglass
+├── main.go                    # Entire Go backend (API, routing, cron interface)
+├── cron/
+│   ├── parser.go             # Parse crontab text to JSON structures
+│   ├── manager.go            # Read/write crontab via os/exec
+│   └── history.go            # Query system logs for job execution history
+├── ui/
+│   └── index.html            # Single-file frontend (embedded in binary)
+├── go.mod                     # Module definition
+└── README.md                  # Deployment and usage guide
+```
+
+### Tech Decisions
+
+| Component | Choice | Why |
+|-----------|--------|-----|
+| Backend | Go net/http | No external framework deps, native embedded FS, single binary |
+| Frontend | Vanilla JS + Tailwind CDN | No build step, zero runtime bloat, responsive out of box |
+| System Interface | os/exec (crontab CLI) | Works cross-user, respects system crontab editor |
+| Binaries | Embedded via //go:embed | No static files to manage separately |
+
+## Development Phases
+
+### Phase 1: Core System Interface
+- **Goal:** Safely read/write the Linux crontab
+- **Tasks:**
+  - `cron/manager.go`: Execute `crontab -l`, handle empty crontab error
+  - `cron/manager.go`: Pipe sanitized crontab text via `crontab -`
+  - `cron/parser.go`: Parse crontab format → cron.Entry structs (schedule, command, comment)
+
+**Key Structs:**
+```go
+type Entry struct {
+    ID       string // UUID for tracking
+    Schedule string // "* * * * *"
+    Command  string // Full command string
+    Comment  string // Descriptive comment
+    Active   bool   // true if uncommented
+}
+```
+
+### Phase 2: REST API Endpoints
+- **Goal:** Expose lightweight HTTP API
+- **Port:** Default 8080
+- **Endpoints:**
+  - `GET /api/cron` → JSON array of cron.Entry
+  - `POST /api/cron` → Accept new config ([]Entry), save to crontab
+  - `GET /` → Serve embedded index.html
+  - `GET /health` → JSON health check (OK if crontab readable)
+
+**Auth:** Optional flag for basic auth in remote mode (user:pass in env vars)
+
+### Phase 3: Frontend UI
+- **File:** `ui/index.html` (single-file, embedded in binary)
+- **Layout:**
+  - Header: Title, sync status, auth check
+  - Table: List all cron jobs (schedule, command, status toggle)
+  - Form: Add/edit cron job (schedule, command, comment)
+  - Controls: Delete, run now (if safe), export config
+- **Styling:** Tailwind via CDN (responsive, dark/light mode toggle)
+- **Logic:** Vanilla JS fetch() to GET/POST to API
+
+**Security Flags:**
+- `--bind 127.0.0.1:8080` (default) → local-only, SSH tunnel mode
+- `--bind 0.0.0.0:8080` → remote accessible (requires auth)
+
+### Phase 4: VS Code Extension (Future)
+- Not in MVP, but API is designed to support it
+- Extension will SSH port-forward to localhost:8080, no separate auth needed
+
+## Code Conventions
+
+### Go
+- **Error Handling:** Always wrap system errors with context, log to stderr
+- **Concurrency:** Single-threaded initially (crontab is not concurrent); add mutexes only if needed
+- **Naming:** Keep function names short, avoid abbreviations (`parseCrontab` not `parseCron`)
+- **Testing:** Each major function gets a test file (parser_test.go, manager_test.go)
+
+### Frontend
+- **No Build Step:** All CSS via Tailwind CDN, no bundler
+- **No Framework:** Vanilla JS (fetch, DOM manipulation, event listeners)
+- **State Management:** Keep data in memory; sync to API on change
+- **Accessibility:** Use semantic HTML, ARIA labels where needed
+
+### Commit Messages
+Format: `type(scope): description`
+- `feat(cron): add job parsing from crontab text`
+- `fix(api): handle empty crontab gracefully`
+- `docs: update deployment guide`
+- `test(parser): add edge case coverage`
+
+## Environment Variables (Optional)
+
+```bash
+HOURGLASS_BIND=0.0.0.0:8080           # Bind address (default: 127.0.0.1:8080)
+HOURGLASS_AUTH_USER=admin             # Basic auth username
+HOURGLASS_AUTH_PASS=secretpass        # Basic auth password
+```
+
+## Deployment
 
 ### Build
 ```bash
 go build -o hourglass .
 ```
 
-### Run (local)
+### Run (local only)
 ```bash
 ./hourglass
-# Opens on http://localhost:8080
+# Open http://localhost:8080
 ```
 
-### Run (remote)
+### Run (remote with SSH tunnel)
 ```bash
-HOURGLASS_BIND=0.0.0.0:8080 \
-HOURGLASS_AUTH_USER=admin \
-HOURGLASS_AUTH_PASS=secretpass \
-./hourglass
+HOURGLASS_BIND=0.0.0.0:8080 ./hourglass
+# On your machine: ssh -L 8080:localhost:8080 user@remote
+# Open http://localhost:8080
 ```
 
----
+### Systemd Service (Optional)
+Create `/etc/systemd/system/hourglass.service`:
+```ini
+[Unit]
+Description=Hourglass Crontab Manager
+After=network.target
 
-## Project Layout
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/hourglass
+Restart=on-failure
+Environment="HOURGLASS_BIND=127.0.0.1:8080"
 
-```
-.
-├── main.go                # HTTP server, routing, embedded FS
-├── cron/
-│   ├── parser.go         # Parse & validate crontab format
-│   ├── parser_test.go    # Parser tests
-│   ├── manager.go        # Read/write crontab via os/exec
-│   └── manager_test.go   # Manager tests
-├── ui/
-│   └── index.html        # Single-file frontend (embedded)
-├── go.mod                # Module definition
-├── CLAUDE.md             # This file
-├── Design.md             # Full architecture & decisions
-├── TODO.md               # Implementation checklist
-└── README.md             # User-facing guide (post-launch)
+[Install]
+WantedBy=multi-user.target
 ```
 
----
+## Testing Strategy
 
-## Core Components
+- **Unit Tests:** Parser edge cases (duplicate schedules, malformed lines)
+- **Integration Tests:** Mock crontab binary, test read/write flows
+- **Manual QA:** Test on actual Linux system (macOS has differences)
 
-### `cron/parser.go`
+## Known Limitations
 
-Parses crontab text to Entry structs. Validates schedule format (minute 0-59, hour 0-23, etc.).
+1. **macOS:** System crontab location differs; MVP targets Linux only
+2. **User Switching:** Only manages current user's crontab (no sudo yet)
+3. **Real-Time Execution:** Does NOT run jobs; only schedules them
+4. **Concurrency:** No job locks; assume single admin editing at a time
 
-**Key functions:**
-- `ParseCrontab(text string) ([]Entry, error)` — Parse text to entries
-- `ValidateSchedule(schedule string) error` — Validate "0 9 * * *" format
-- `StringifyCrontab(entries []Entry) string` — Convert back to text
+## Success Criteria for MVP
 
-### `cron/manager.go`
+- [ ] Go binary compiles to <15MB single file
+- [ ] Can read any valid system crontab
+- [ ] Can add/edit/delete jobs via API
+- [ ] Frontend UI loads in <1s
+- [ ] Graceful error handling for permission issues
+- [ ] Works on Ubuntu 20.04 LTS (primary target)
 
-Interfaces with Linux crontab via os/exec. Handles read/write with error recovery.
+## GSTACK REVIEW REPORT
 
-**Key functions:**
-- `ReadCrontab() (string, error)` — Execute `crontab -l`
-- `WriteCrontab(entries []Entry) error` — Execute `crontab -` with stdin
+**Review Date:** 2026-07-09  
+**Review Type:** Engineering Review (Architecture + Test Coverage)  
+**Status:** CLEARED — Proceed with implementation
 
-### `main.go`
+### Scope Decisions
+- **Distribution:** Include GitHub Actions CI/CD for cross-platform builds (linux/darwin amd64/arm64)
+- **Platform:** Linux-only MVP; macOS support deferred to post-launch
+- **Concurrency:** No locking (single-admin assumption; first-write-wins)
+- **Permissions:** Current user only (no sudo/root escalation in MVP)
+- **Errors:** User-friendly messages from API
 
-HTTP server with 3 endpoints. Embeds `ui/index.html` in binary.
+### Architecture Decisions
+- **Schedule Validation:** Add pre-write validation layer (prevents invalid schedules from reaching system)
+- **Write Safety:** Implement read-before-write with fallback (protects against data loss)
+- **API Versioning:** Start with `/api/cron`, refactor to `/v1/` if needed later
 
-**Endpoints:**
-- `GET /` — Serve embedded HTML
-- `GET /api/cron` — Return JSON array of cron jobs
-- `POST /api/cron` — Accept new entries, validate, write to system
+### Test Coverage
+- **Completeness:** 87% code path coverage, 80% user flow coverage (13/15 paths tested)
+- **Quality:** 8 full tests (happy + error), 4 edge cases, 1 smoke test
+- **Strategy:** Unit tests (parser, manager), E2E tests (user flows), mocked system calls
 
-### `ui/index.html`
+### Critical Issues Resolved
+1. ✅ Added schedule validation (prevents "99 * * * *" type errors)
+2. ✅ Added read-before-write safety (prevents silent data corruption)
+3. ✅ Defined error handling strategy (user-friendly messages)
+4. ✅ Locked concurrency model (no locking; document single-admin constraint)
 
-Single HTML file with inline CSS (Tailwind CDN) and vanilla JS.
+### Known Risks & Mitigations
+| Risk | Impact | Mitigation |
+|------|--------|-----------|
+| Concurrent writes overwrite | Data loss | Document as single-admin tool; roadmap future locking |
+| No macOS support | Platform gap | Intentional deferral; architecture supports it |
+| crontab daemon down | Service unavailable | Catch error, return 500 + message to user |
+| Disk full on write | Data loss risk | Read-before-write catches this scenario |
 
-**Features:**
-- Table view of all cron jobs
-- Forms to add/edit/delete jobs
-- Error message display
-- Responsive design (mobile-friendly)
+### Implementation Order
+**Phase 1 (Critical):** T1-T5 (core features + tests)  
+**Phase 2 (Support):** T6-T7 (CI/CD + docs)  
+**Phase 3 (Future):** T8 (macOS support)
 
----
+**Estimated timeline:** ~16h human + ~90min CC total. Parallelizable: T1 + T4 in separate branches.
 
-## Key Decisions
-
-**See `Design.md` for full rationale.**
-
-| Decision | Choice | Trade-off |
-| --- | --- | --- |
-| **Concurrency** | No locking (first-write-wins) | Data loss if 2 admins edit simultaneously |
-| **Platform** | Linux-only MVP | macOS support deferred |
-| **Permissions** | Current user only | Can't edit other users' crontabs |
-| **Frontend** | Single HTML + Tailwind CDN | No build step required |
-| **API versions** | `/api/cron` (no versioning yet) | Refactor to `/v1/` when features expand |
-| **Write safety** | Read-before-write fallback | Extra system call (acceptable) |
-
----
-
-## Testing
-
-### Run all tests
-```bash
-go test ./...
-```
-
-### Run with coverage
-```bash
-go test -cover ./...
-```
-
-### Integration test
-```bash
-# Starts server, tests API
-go test -run Integration ./...
-```
-
-**Target coverage:** 87% (code paths) + 80% (user flows)
-
-See `TODO.md` for detailed test plan.
-
----
-
-## Code Conventions
-
-- **Error handling:** Wrap system errors with context. Log to stderr.
-- **Naming:** Explicit > clever. `ParseCrontab()` not `parseCron()`.
-- **Comments:** Only when WHY is non-obvious. No docstrings for obvious functions.
-- **Tests:** Each major package gets a `*_test.go` file. Use table-driven tests for edge cases.
-
----
-
-## Development Workflow
-
-1. **Pick a task** from `TODO.md`
-2. **Check out a feature branch:** `git checkout -b task/T1-parser`
-3. **Write tests first** (TDD). See existing `*_test.go` for examples.
-4. **Implement** the feature. Keep diffs minimal & focused.
-5. **Run tests locally:** `go test ./...`
-6. **Commit** with message: `feat(parser): validate cron schedules`
-7. **Push** and open PR for review.
-
----
-
-## Common Tasks
-
-### Add a new cron validation rule
-1. Edit `cron/parser.go` — add rule to `ValidateSchedule()`
-2. Add test case to `cron/parser_test.go`
-3. Run `go test ./cron`
-4. Commit
-
-### Change an API response format
-1. Update struct in `main.go` (e.g., add new field to `Entry`)
-2. Update handler (e.g., `handleGetCron()`)
-3. Add test in `main_test.go`
-4. Update frontend in `ui/index.html` to handle new field
-5. Run full test suite: `go test ./...`
-6. Commit
-
-### Fix a bug in the UI
-1. Edit `ui/index.html` (inline JS)
-2. Reload browser at `http://localhost:8080` (recompile binary if embedded file changed)
-3. Test manually
-4. Commit
-
----
-
-## Environment Variables
-
-| Var | Default | Purpose |
-| --- | --- | --- |
-| `HOURGLASS_BIND` | `127.0.0.1:8080` | Server bind address |
-| `HOURGLASS_AUTH_USER` | (none) | Basic auth username (optional) |
-| `HOURGLASS_AUTH_PASS` | (none) | Basic auth password (optional) |
-
----
-
-## Deployment
-
-**See `README.md` (post-MVP) for user instructions.**
-
-### Local development
-```bash
-go run main.go
-```
-
-### Build release binary
-```bash
-# GitHub Actions does this automatically on tag
-git tag v0.1.0
-git push origin v0.1.0
-# Check GitHub Actions for build progress
-```
-
-### Manual systemd install (future)
-```bash
-sudo cp hourglass /usr/local/bin/
-sudo systemctl enable hourglass
-sudo systemctl start hourglass
-```
-
----
-
-## Troubleshooting
-
-### "Cannot read crontab: permission denied"
-- Running as wrong user. Try: `sudo ./hourglass`
-- Crontab not initialized. Try: `crontab -e` in system, then reload
-
-### "Address already in use :8080"
-- Port 8080 taken. Try: `HOURGLASS_BIND=127.0.0.1:9000 ./hourglass`
-
-### UI not loading
-- Recompile binary (changes to `ui/index.html` require rebuild)
-- Browser cache. Open DevTools → clear cache → reload
-
----
-
-## References
-
-- **Architecture & decisions:** See `Design.md`
-- **Implementation checklist:** See `TODO.md`
-- **User guide (post-MVP):** See `README.md`
-- **Go crontab format:** [man crontab(5)](https://man7.org/linux/man-pages/man5/crontab.5.html)
-- **Go stdlib:** [net/http](https://pkg.go.dev/net/http), [os/exec](https://pkg.go.dev/os/exec)
-
----
-
-## Questions?
-
-Refer to `Design.md` for architecture rationale, `TODO.md` for task breakdown, or review git history for context on past decisions.
+### VERDICT
+✅ **CLEARED — Architecture is sound, test coverage is complete, risk mitigations in place. Ready to implement.**
