@@ -3,10 +3,12 @@ package ssh
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 type Client struct {
@@ -29,22 +31,43 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Connect() error {
-	key, err := os.ReadFile(c.KeyPath)
-	if err != nil {
-		return fmt.Errorf("failed to read SSH key: %w", err)
+func (c *Client) getAuthMethods() ([]ssh.AuthMethod, error) {
+	var methods []ssh.AuthMethod
+
+	// Try SSH agent if available
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		if ag, err := net.Dial("unix", sock); err == nil {
+			agentClient := agent.NewClient(ag)
+			methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
+		}
 	}
 
-	signer, err := ssh.ParsePrivateKey(key)
+	// Try key file (unencrypted only)
+	if c.KeyPath != "" {
+		key, err := os.ReadFile(c.KeyPath)
+		if err == nil {
+			if signer, err := ssh.ParsePrivateKey(key); err == nil {
+				methods = append(methods, ssh.PublicKeys(signer))
+			}
+		}
+	}
+
+	if len(methods) == 0 {
+		return nil, fmt.Errorf("no valid SSH keys found; use unencrypted keys or configure SSH agent")
+	}
+
+	return methods, nil
+}
+
+func (c *Client) Connect() error {
+	authMethods, err := c.getAuthMethods()
 	if err != nil {
-		return fmt.Errorf("failed to parse SSH key: %w", err)
+		return err
 	}
 
 	config := &ssh.ClientConfig{
-		User: c.User,
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
-		},
+		User:            c.User,
+		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         15 * time.Second,
 	}
@@ -98,6 +121,11 @@ func (c *Client) IsConnected() bool {
 }
 
 func TestConnection(host string, port int, user, keyPath string) error {
+	if port == 0 {
+		port = 22
+	}
+
+	// Try key file (unencrypted only)
 	key, err := os.ReadFile(keyPath)
 	if err != nil {
 		return fmt.Errorf("failed to read SSH key: %w", err)
@@ -105,7 +133,7 @@ func TestConnection(host string, port int, user, keyPath string) error {
 
 	signer, err := ssh.ParsePrivateKey(key)
 	if err != nil {
-		return fmt.Errorf("failed to parse SSH key: %w", err)
+		return fmt.Errorf("failed to parse SSH key: %w - ensure key is unencrypted", err)
 	}
 
 	config := &ssh.ClientConfig{
@@ -115,10 +143,6 @@ func TestConnection(host string, port int, user, keyPath string) error {
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         10 * time.Second,
-	}
-
-	if port == 0 {
-		port = 22
 	}
 
 	addr := fmt.Sprintf("%s:%d", host, port)
