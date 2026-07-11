@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/brandontillman/hourglass/cron"
+	"github.com/TillmanBuildsTech/hourglass/cron"
 )
 
 func TestIntegrationGetCron(t *testing.T) {

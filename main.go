@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brandontillman/hourglass/cron"
+	"github.com/TillmanBuildsTech/hourglass/cron"
 )
 
 //go:embed ui/index.html

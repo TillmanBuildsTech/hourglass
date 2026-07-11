@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brandontillman/hourglass/cron"
+	"github.com/TillmanBuildsTech/hourglass/cron"
 )
 
 func TestHandleRoot(t *testing.T) {

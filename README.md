@@ -23,10 +23,10 @@
 
 ### Download Binary
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/brandontillman/hourglass/releases):
+Download the latest binary for your platform from [GitHub Releases](https://github.com/TillmanBuildsTech/hourglass/releases):
 
 ```bash
-wget https://github.com/brandontillman/hourglass/releases/download/v1.0.0/hourglass-linux-amd64
+wget https://github.com/TillmanBuildsTech/hourglass/releases/download/v1.0.0/hourglass-linux-amd64
 chmod +x hourglass-linux-amd64
 sudo mv hourglass-linux-amd64 /usr/local/bin/hourglass
 ```
@@ -217,7 +217,7 @@ Contributions welcome! Please:
 ## Support
 
 Found a bug? Have a feature request? Open an issue on GitHub:
-https://github.com/brandontillman/hourglass/issues
+https://github.com/TillmanBuildsTech/hourglass/issues
 
 ---
 
