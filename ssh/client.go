@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -31,6 +34,17 @@ func NewClient(host string, port int, user, keyPath string) (*Client, error) {
 	}, nil
 }
 
+func expandPath(path string) (string, error) {
+	if strings.HasPrefix(path, "~") {
+		usr, err := user.Current()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(usr.HomeDir, path[1:]), nil
+	}
+	return path, nil
+}
+
 func (c *Client) getAuthMethods() ([]ssh.AuthMethod, error) {
 	var methods []ssh.AuthMethod
 
@@ -44,7 +58,12 @@ func (c *Client) getAuthMethods() ([]ssh.AuthMethod, error) {
 
 	// Try key file (unencrypted only)
 	if c.KeyPath != "" {
-		key, err := os.ReadFile(c.KeyPath)
+		keyPath, err := expandPath(c.KeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand key path: %w", err)
+		}
+
+		key, err := os.ReadFile(keyPath)
 		if err == nil {
 			if signer, err := ssh.ParsePrivateKey(key); err == nil {
 				methods = append(methods, ssh.PublicKeys(signer))
@@ -125,10 +144,16 @@ func TestConnection(host string, port int, user, keyPath string) error {
 		port = 22
 	}
 
-	// Try key file (unencrypted only)
-	key, err := os.ReadFile(keyPath)
+	// Expand path (support ~)
+	expandedPath, err := expandPath(keyPath)
 	if err != nil {
-		return fmt.Errorf("failed to read SSH key: %w", err)
+		return fmt.Errorf("failed to expand key path: %w", err)
+	}
+
+	// Try key file (unencrypted only)
+	key, err := os.ReadFile(expandedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read SSH key at %s: %w", expandedPath, err)
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
