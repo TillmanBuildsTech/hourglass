@@ -48,31 +48,37 @@ func expandPath(path string) (string, error) {
 func (c *Client) getAuthMethods() ([]ssh.AuthMethod, error) {
 	var methods []ssh.AuthMethod
 
-	// Try SSH agent if available
+	// Try SSH agent if available (preferred method)
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if ag, err := net.Dial("unix", sock); err == nil {
 			agentClient := agent.NewClient(ag)
-			methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
+			signers, err := agentClient.Signers()
+			if err == nil && len(signers) > 0 {
+				methods = append(methods, ssh.PublicKeys(signers...))
+			}
 		}
 	}
 
-	// Try key file (unencrypted only)
+	// Fall back to key file (unencrypted only)
 	if c.KeyPath != "" {
 		keyPath, err := expandPath(c.KeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to expand key path: %w", err)
-		}
-
-		key, err := os.ReadFile(keyPath)
-		if err == nil {
-			if signer, err := ssh.ParsePrivateKey(key); err == nil {
-				methods = append(methods, ssh.PublicKeys(signer))
+			// Don't fail entirely, SSH agent might have worked
+			if len(methods) == 0 {
+				return nil, fmt.Errorf("failed to expand key path: %w", err)
+			}
+		} else {
+			key, err := os.ReadFile(keyPath)
+			if err == nil {
+				if signer, err := ssh.ParsePrivateKey(key); err == nil {
+					methods = append(methods, ssh.PublicKeys(signer))
+				}
 			}
 		}
 	}
 
 	if len(methods) == 0 {
-		return nil, fmt.Errorf("no valid SSH keys found; use unencrypted keys or configure SSH agent")
+		return nil, fmt.Errorf("no valid SSH keys found; add key to SSH agent (ssh-add ~/.ssh/hourglass_key) or use unencrypted keys")
 	}
 
 	return methods, nil
