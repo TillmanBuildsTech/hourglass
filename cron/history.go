@@ -1,9 +1,9 @@
 package cron
 
 import (
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
-	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,13 +14,6 @@ type Execution struct {
 	Command   string
 	ExitCode  int
 	Status    string
-}
-
-type JournalEntry struct {
-	Message  string `json:"MESSAGE"`
-	Priority string `json:"PRIORITY"`
-	ExitCode string `json:"EXIT_CODE"`
-	CmdLine  string `json:"CMDLINE"`
 }
 
 type HistoryCache struct {
@@ -48,32 +41,25 @@ func (h *HistoryCache) Get(command string) *Execution {
 	return h.entries[normalizeCommand(command)]
 }
 
-func (h *HistoryCache) Refresh() error {
-	cmd := exec.Command("journalctl", "-u", "cron", "-o", "json", "--since=24h ago")
-	output, err := cmd.Output()
+// Refresh re-reads the Hourglass-owned execution log through executor (so
+// it works against both local and SSH-remote crontabs) and rebuilds the
+// cache with the latest execution per command.
+func (h *HistoryCache) Refresh(executor Executor) error {
+	output, err := executor.Execute(readHistoryLogCommand())
 	if err != nil {
-		return fmt.Errorf("failed to query journalctl: %w", err)
+		return fmt.Errorf("failed to read history log: %w", err)
 	}
 
 	entries := make(map[string]*Execution)
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
+	for _, line := range strings.Split(output, "\n") {
+		exec := parseHistoryLine(line)
+		if exec == nil {
 			continue
 		}
-
-		var je JournalEntry
-		if err := json.Unmarshal([]byte(line), &je); err != nil {
-			continue
-		}
-
-		exec := parseJournalEntry(je)
-		if exec != nil {
-			cmd := normalizeCommand(exec.Command)
-			if _, exists := entries[cmd]; !exists || exec.Timestamp.After(entries[cmd].Timestamp) {
-				entries[cmd] = exec
-			}
+		key := normalizeCommand(exec.Command)
+		if existing, ok := entries[key]; !ok || exec.Timestamp.After(existing.Timestamp) {
+			entries[key] = exec
 		}
 	}
 
@@ -85,19 +71,32 @@ func (h *HistoryCache) Refresh() error {
 	return nil
 }
 
-func parseJournalEntry(je JournalEntry) *Execution {
-	if !strings.Contains(je.Message, "CMD") && !strings.Contains(je.Message, "CRON") {
+// parseHistoryLine parses one line written by the crontab command wrapper
+// (see wrapCommandForHistory): "<unix-millis>\t<exit-code>\t<base64(cmd)>".
+func parseHistoryLine(line string) *Execution {
+	line = strings.TrimRight(line, "\r")
+	if line == "" {
 		return nil
 	}
 
-	cmd := extractCommand(je.Message)
-	if cmd == "" {
+	fields := strings.Split(line, "\t")
+	if len(fields) != 3 {
 		return nil
 	}
 
-	exitCode := 0
-	if je.ExitCode != "" && je.ExitCode != "0" {
-		fmt.Sscanf(je.ExitCode, "%d", &exitCode)
+	ms, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return nil
+	}
+
+	exitCode, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return nil
+	}
+
+	cmdBytes, err := base64.StdEncoding.DecodeString(fields[2])
+	if err != nil || len(cmdBytes) == 0 {
+		return nil
 	}
 
 	status := "success"
@@ -106,31 +105,21 @@ func parseJournalEntry(je JournalEntry) *Execution {
 	}
 
 	return &Execution{
-		Timestamp: time.Now(),
-		Command:   cmd,
+		Timestamp: time.UnixMilli(ms),
+		Command:   string(cmdBytes),
 		ExitCode:  exitCode,
 		Status:    status,
 	}
 }
 
-func extractCommand(msg string) string {
-	if idx := strings.Index(msg, "CMD ("); idx != -1 {
-		start := idx + 5
-		if endIdx := strings.Index(msg[start:], ")"); endIdx != -1 {
-			return msg[start : start+endIdx]
-		}
-	}
-	return ""
-}
-
 func normalizeCommand(cmd string) string {
-	return strings.TrimSpace(strings.ToLower(cmd))
+	return strings.TrimSpace(cmd)
 }
 
 func (m *Manager) GetLastExecution(cmd string) *Execution {
 	exec := m.cache.Get(cmd)
 	if exec == nil {
-		if err := m.cache.Refresh(); err != nil {
+		if err := m.cache.Refresh(m.executor); err != nil {
 			return nil
 		}
 		exec = m.cache.Get(cmd)
@@ -142,7 +131,7 @@ func (m *Manager) StartHistoryRefresh() {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		for range ticker.C {
-			m.cache.Refresh()
+			m.cache.Refresh(m.executor)
 		}
 	}()
 }
