@@ -103,6 +103,9 @@ Format: `type(scope): description`
 - `docs: update deployment guide`
 - `test(parser): add edge case coverage`
 
+### Versioning
+The app version lives in the `VERSION` file at the repo root (embedded into the binary via `go:embed`, exposed through `--version`, `GET /api/version`, and the UI header). **Bump it with every PR** — patch (`0.1.x`) for fixes/small changes, minor (`0.x.0`) for new features, major (`x.0.0`) for breaking changes.
+
 ## Environment Variables (Optional)
 
 ```bash

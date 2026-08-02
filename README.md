@@ -156,6 +156,15 @@ ssh -L 8080:localhost:8080 user@remote-server
 
 ## Configuration
 
+### Checking the Version
+
+The running version is shown in the web UI header, and available via:
+
+```bash
+./hourglass --version
+curl http://localhost:8080/api/version
+```
+
 ### Environment Variables
 
 | Variable | Default | Purpose |

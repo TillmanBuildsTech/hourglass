@@ -16,7 +16,7 @@
     <div class="max-w-6xl mx-auto py-8 px-4">
         <div class="flex justify-between items-start mb-8">
             <div>
-                <h1 class="text-4xl font-bold text-gray-900 mb-2">Hourglass</h1>
+                <h1 class="text-4xl font-bold text-gray-900 mb-2">Hourglass <span id="app-version" class="text-sm font-normal text-gray-400 align-middle"></span></h1>
                 <p class="text-gray-600">Self-hosted crontab manager</p>
             </div>
             <div class="text-right">
@@ -360,6 +360,19 @@
             document.getElementById('conn-test-status').textContent = '';
         });
 
+        async function loadVersion() {
+            try {
+                const resp = await fetch('/api/version');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (data.version) {
+                    document.getElementById('app-version').textContent = 'v' + data.version;
+                }
+            } catch (err) {
+                // Non-critical - just leave the badge blank.
+            }
+        }
+
         // Jobs Management
         async function loadJobs() {
             try {
@@ -520,6 +533,7 @@
         }
 
         initConnections();
+        loadVersion();
         loadJobs();
         setInterval(loadJobs, 30000);
     </script>

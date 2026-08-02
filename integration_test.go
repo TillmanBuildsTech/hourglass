@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package main
@@ -8,12 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/TillmanBuildsTech/hourglass/cron"
 )
 
 func TestIntegrationGetCron(t *testing.T) {
-	cronManager = cron.NewManager()
+	cronManager = newTestCronManager()
 
 	req := httptest.NewRequest("GET", "/api/cron", nil)
 	w := httptest.NewRecorder()
@@ -31,7 +30,7 @@ func TestIntegrationGetCron(t *testing.T) {
 }
 
 func TestIntegrationPostAndGet(t *testing.T) {
-	cronManager = cron.NewManager()
+	cronManager = newTestCronManager()
 
 	entry := Entry{
 		Schedule: "0 9 * * *",
@@ -52,7 +51,7 @@ func TestIntegrationPostAndGet(t *testing.T) {
 }
 
 func TestIntegrationInvalidScheduleRejected(t *testing.T) {
-	cronManager = cron.NewManager()
+	cronManager = newTestCronManager()
 
 	entry := Entry{
 		Schedule: "99 99 * * *",
@@ -72,7 +71,7 @@ func TestIntegrationInvalidScheduleRejected(t *testing.T) {
 }
 
 func TestIntegrationHandlerChain(t *testing.T) {
-	cronManager = cron.NewManager()
+	cronManager = newTestCronManager()
 
 	req := httptest.NewRequest("GET", "/api/cron", nil)
 	w := httptest.NewRecorder()
@@ -85,7 +84,7 @@ func TestIntegrationHandlerChain(t *testing.T) {
 }
 
 func TestIntegrationDeleteRequest(t *testing.T) {
-	cronManager = cron.NewManager()
+	cronManager = newTestCronManager()
 
 	deleteReq := DeleteRequest{Index: 0}
 	body, _ := json.Marshal(deleteReq)
@@ -100,7 +99,7 @@ func TestIntegrationDeleteRequest(t *testing.T) {
 	}
 }
 
-func TestRootHandlerServes HTML(t *testing.T) {
+func TestRootHandlerServesHTML(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
 
@@ -122,12 +121,12 @@ func TestRootHandlerServes HTML(t *testing.T) {
 }
 
 func TestCronEndpointRouting(t *testing.T) {
-	cronManager = cron.NewManager()
+	cronManager = newTestCronManager()
 
 	tests := []struct {
-		method   string
-		code     int
-		name     string
+		method string
+		code   int
+		name   string
 	}{
 		{"GET", http.StatusOK, "GET allowed"},
 		{"POST", http.StatusCreated, "POST allowed"},
