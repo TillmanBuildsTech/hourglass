@@ -463,6 +463,8 @@ HOURGLASS_AUTH_PASS=secretpass \
 
 ## Appendix A: Cron Execution Tracking Options
 
+> **Update (2026-07-31):** Option 1 (syslog/journalctl parsing) as originally implemented turned out to be non-functional in production — cron never reports exit codes to syslog at all (see [issue #1](https://github.com/TillmanBuildsTech/hourglass/issues/1)), so `LastStatus`/`LastCode` were always empty. Hourglass now uses a variant of Option 2, but automatically: `WriteCrontab` transparently wraps each managed job's command so it logs its own exit code and timestamp to `~/.hourglass/history.log`, and unwraps it back to the original command whenever it's read/edited. No user-facing wrapper script or crontab edits are required — this preserves the "no edits needed" promise while actually working. See `cron/manager.go` (`wrapCommandForHistory`/`unwrapEntry`) and `cron/history.go`.
+
 ### Context
 Hourglass MVP must show last execution time + status for each job. This is now a core v1 feature.
 

@@ -5,19 +5,18 @@
 ## Features
 
 - 📋 **View all cron jobs** in a clean table interface
-- ⏱️ **See when each job last ran** (from system logs)
+- ⏱️ **See when each job last ran** (tracked automatically by Hourglass)
 - ✅ **View exit status** — success or failure at a glance
 - ✏️ **Add/edit/delete jobs** through the web UI
 - 🌐 **Connection manager** — manage multiple Hourglass instances from one place
 - 🔒 **No external dependencies** — single binary, runs anywhere
-- 🚀 **Auto-parse system logs** — no setup required
+- 🚀 **Auto-tracked execution history** — no setup required
 - 📱 **Responsive design** — works on desktop and mobile
 
 ## Requirements
 
-- **Linux** (20.04 LTS or newer)
+- **Linux** (20.04 LTS or newer) with GNU coreutils (`date`, `printf`) — the default on all mainstream distros
 - **crontab** installed
-- **journalctl** available (comes with systemd)
 - Optional: Basic auth credentials (for remote access)
 
 ## Installation
@@ -157,6 +156,15 @@ ssh -L 8080:localhost:8080 user@remote-server
 
 ## Configuration
 
+### Checking the Version
+
+The running version is shown in the web UI header, and available via:
+
+```bash
+./hourglass --version
+curl http://localhost:8080/api/version
+```
+
 ### Environment Variables
 
 | Variable | Default | Purpose |
@@ -196,11 +204,11 @@ newgrp root
 hourglass
 ```
 
-### "journalctl: command not found"
+### Last run / status never shows up
 
-Systemd is not installed (rare on modern Linux).
+Hourglass tracks execution history by wrapping each job's command so it logs its exit code and timestamp to `~/.hourglass/history.log` (the home directory of whichever user's crontab is being managed — the local user, or the SSH-remote user). If that user has no writable `$HOME`, history silently stays empty. Jobs added outside Hourglass (directly via `crontab -e`) aren't wrapped either, so they won't show history until edited and saved through Hourglass.
 
-**Solution:** Install systemd or upgrade your OS.
+**Solution:** Make sure the crontab owner has a writable home directory.
 
 ### "No crontab found"
 
@@ -229,8 +237,9 @@ Check if the backend API is running. Open browser DevTools (F12) and check the N
 ## Limitations
 
 - **Single Admin** — Only one person should edit jobs at a time. Concurrent edits may overwrite each other.
-- **Linux Only** — macOS and Windows support deferred.
-- **History Limited** — Execution history is limited by system log retention (typically 1-4 weeks).
+- **Linux Only** — macOS and Windows support deferred. Requires GNU `date` for millisecond timestamps.
+- **Hourglass-Managed Jobs Only** — Only jobs added/edited through Hourglass are wrapped to record execution history. Jobs added directly via `crontab -e` won't show a last-run status until saved through Hourglass.
+- **History Shows Latest Run Only** — Hourglass keeps the most recent execution per job, not a full history log (the `~/.hourglass/history.log` file itself does accumulate every run until you rotate or clear it).
 - **No Clustering** — Each instance manages its own crontab.
 
 ## Architecture
@@ -239,7 +248,7 @@ Check if the backend API is running. Open browser DevTools (F12) and check the N
 
 - **HTTP Server:** `net/http`
 - **Crontab I/O:** `os/exec` (runs `crontab` command)
-- **System Logs:** `os/exec` (runs `journalctl` command)
+- **Execution History:** Each managed job's command is wrapped so it appends its exit code and timestamp to `~/.hourglass/history.log`; Hourglass reads that file back (via the same local/SSH executor used for crontab I/O) instead of parsing system logs, since cron itself never reports exit codes to syslog.
 - **UI:** Single HTML file with inline CSS (Tailwind CDN) and vanilla JavaScript
 
 See [Design.md](Design.md) for detailed architecture decisions.

@@ -1,8 +1,38 @@
 package cron
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
+
+// memExecutor is an in-memory fake of Executor that emulates `crontab -l`
+// / `crontab - <<'EOF' ... EOF` well enough to exercise WriteCrontab and
+// GetEntries end-to-end without touching a real crontab.
+type memExecutor struct {
+	crontab string
+}
+
+func (e *memExecutor) Execute(command string) (string, error) {
+	if command == "crontab -l" {
+		if e.crontab == "" {
+			return "", fmt.Errorf("no crontab found or permission denied")
+		}
+		return e.crontab, nil
+	}
+
+	if strings.HasPrefix(command, "crontab - << 'EOF'") {
+		start := strings.Index(command, "\n")
+		end := strings.LastIndex(command, "\nEOF")
+		if start == -1 || end == -1 || end < start {
+			return "", fmt.Errorf("malformed heredoc")
+		}
+		e.crontab = command[start+1 : end]
+		return "", nil
+	}
+
+	return "", nil
+}
 
 func TestNewManager(t *testing.T) {
 	m := NewManager()
@@ -122,6 +152,68 @@ func TestMultipleEntriesOperations(t *testing.T) {
 
 	if len(parsed) != 2 {
 		t.Errorf("Expected 2 parsed entries, got %d", len(parsed))
+	}
+}
+
+func TestWriteCrontabWrapsCommandForHistory(t *testing.T) {
+	exec := &memExecutor{}
+	m := NewManagerWithExecutor(exec)
+
+	entry := Entry{
+		Schedule: "* * * * *",
+		Command:  "/bin/true",
+		Comment:  "test",
+	}
+
+	if err := m.AddEntry(entry); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
+
+	if !strings.Contains(exec.crontab, "history.log") {
+		t.Errorf("expected the raw crontab entry to log execution history, got: %s", exec.crontab)
+	}
+
+	entries, err := m.GetEntries()
+	if err != nil {
+		t.Fatalf("GetEntries failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].Command != "/bin/true" {
+		t.Errorf("Command = %q, want the unwrapped original /bin/true", entries[0].Command)
+	}
+	if entries[0].Comment != "test" {
+		t.Errorf("Comment = %q, want %q", entries[0].Comment, "test")
+	}
+}
+
+func TestWriteCrontabDoesNotWrapInactiveEntries(t *testing.T) {
+	exec := &memExecutor{}
+	m := NewManagerWithExecutor(exec)
+
+	entries := []Entry{
+		{Schedule: "* * * * *", Command: "/bin/true", Inactive: true},
+	}
+
+	if err := m.WriteCrontab(entries); err != nil {
+		t.Fatalf("WriteCrontab failed: %v", err)
+	}
+
+	if !strings.Contains(exec.crontab, "# * * * * * /bin/true") {
+		t.Errorf("expected inactive entry to remain unwrapped, got: %s", exec.crontab)
+	}
+	if strings.Contains(exec.crontab, "history.log") {
+		t.Errorf("inactive entries should not log execution history, got: %s", exec.crontab)
+	}
+}
+
+func TestUnwrapEntryLeavesUnmarkedEntriesUnchanged(t *testing.T) {
+	entry := Entry{Schedule: "* * * * *", Command: "/bin/true", Comment: "plain comment"}
+
+	result := unwrapEntry(entry)
+	if result != entry {
+		t.Errorf("expected unmarked entry to be unchanged, got %+v", result)
 	}
 }
 

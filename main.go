@@ -3,6 +3,8 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +17,18 @@ import (
 
 //go:embed ui/index.html
 var uiFS embed.FS
+
+//go:embed VERSION
+var versionFS embed.FS
+
+// version is bumped in the VERSION file with every PR.
+func version() string {
+	b, err := versionFS.ReadFile("VERSION")
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(b))
+}
 
 type APIError struct {
 	Error string `json:"error"`
@@ -37,6 +51,14 @@ var cronManager *cron.Manager
 var connManager *connection.Manager
 
 func main() {
+	showVersion := flag.Bool("version", false, "print the Hourglass version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("hourglass v%s\n", version())
+		return
+	}
+
 	var err error
 	connManager, err = connection.NewManager("")
 	if err != nil {
@@ -47,6 +69,7 @@ func main() {
 	cronManager.StartHistoryRefresh()
 
 	http.HandleFunc("/", handleRoot)
+	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/cron", handleCron)
 	http.HandleFunc("/api/connections", handleConnections)
 	http.HandleFunc("/api/connections/active", handleConnectionActive)
@@ -57,10 +80,15 @@ func main() {
 		addr = "127.0.0.1:8080"
 	}
 
-	log.Printf("Starting Hourglass on %s", addr)
+	log.Printf("Starting Hourglass v%s on %s", version(), addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(toJSON(map[string]string{"version": version()})))
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
