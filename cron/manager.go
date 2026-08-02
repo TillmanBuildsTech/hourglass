@@ -243,8 +243,7 @@ func (m *Manager) UpdateEntry(index int, entry Entry) error {
 }
 
 func (m *Manager) deleteCrontab() error {
-	cmd := exec.Command("crontab", "-r")
-	if err := cmd.Run(); err != nil {
+	if _, err := m.executor.Execute("crontab -r"); err != nil {
 		return fmt.Errorf("failed to delete crontab: %w", err)
 	}
 	return nil
