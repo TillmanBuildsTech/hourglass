@@ -12,6 +12,7 @@ import (
 
 	"github.com/TillmanBuildsTech/hourglass/connection"
 	"github.com/TillmanBuildsTech/hourglass/cron"
+	"github.com/TillmanBuildsTech/hourglass/mcp"
 	sshclient "github.com/TillmanBuildsTech/hourglass/ssh"
 )
 
@@ -52,6 +53,7 @@ var connManager *connection.Manager
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the Hourglass version and exit")
+	mcpMode := flag.Bool("mcp", false, "run as an MCP (Model Context Protocol) stdio server for AI agent integration, instead of the web UI")
 	flag.Parse()
 
 	if *showVersion {
@@ -67,6 +69,13 @@ func main() {
 
 	cronManager = cron.NewManager()
 	cronManager.StartHistoryRefresh()
+
+	if *mcpMode {
+		if err := mcp.NewServer(cronManager, version()).Serve(os.Stdin, os.Stdout); err != nil {
+			log.Fatalf("MCP server failed: %v", err)
+		}
+		return
+	}
 
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/api/version", handleVersion)

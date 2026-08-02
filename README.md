@@ -9,6 +9,7 @@
 - ✅ **View exit status** — success or failure at a glance
 - ✏️ **Add/edit/delete jobs** through the web UI
 - 🌐 **Connection manager** — manage multiple Hourglass instances from one place
+- 🤖 **MCP server** — let AI agents (Claude Desktop, Claude Code, etc.) list, create, edit, and delete cron jobs
 - 🔒 **No external dependencies** — single binary, runs anywhere
 - 🚀 **Auto-tracked execution history** — no setup required
 - 📱 **Responsive design** — works on desktop and mobile
@@ -172,6 +173,41 @@ If you've configured basic auth on Hourglass:
 ```bash
 ssh -L 8080:localhost:8080 user@remote-server
 # Visit http://localhost:8080 and enter credentials
+```
+
+## MCP Server
+
+Hourglass can run as a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, so AI agents can list, create, edit, and delete cron jobs directly:
+
+```bash
+./hourglass --mcp
+```
+
+This starts Hourglass in stdio JSON-RPC mode instead of the web UI — it's meant to be spawned as a subprocess by an MCP client, not run interactively. It operates on the local crontab (the same one `./hourglass` manages by default) and exposes these tools:
+
+| Tool | What it does |
+|------|--------------|
+| `list_cron_jobs` | List all jobs with their index, schedule, command, comment, active state, and last run result |
+| `create_cron_job` | Add a new job (`schedule`, `command`, optional `comment`) |
+| `update_cron_job` | Replace the job at `index` with a new `schedule`/`command`/`comment`/`inactive` |
+| `delete_cron_job` | Delete the job at `index` |
+| `validate_cron_schedule` | Check a 5-field schedule string without writing anything |
+
+Indices come from `list_cron_jobs` and can shift after any add/delete, so agents should re-list before acting on a stale index.
+
+### Claude Desktop / Claude Code
+
+Add Hourglass to your MCP client's config (e.g. `claude_desktop_config.json`, or via `claude mcp add`):
+
+```json
+{
+  "mcpServers": {
+    "hourglass": {
+      "command": "/usr/local/bin/hourglass",
+      "args": ["--mcp"]
+    }
+  }
+}
 ```
 
 ## Configuration
