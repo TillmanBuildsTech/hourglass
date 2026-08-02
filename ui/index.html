@@ -186,10 +186,13 @@
                 if (!resp.ok) return;
 
                 const data = await resp.json();
-                if (data.connections && data.connections.length > 0) {
-                    document.getElementById('saved-connections').classList.remove('hidden');
-                    const items = document.getElementById('connections-items');
-                    items.innerHTML = data.connections.map((conn) => `
+                const connections = data.connections || [];
+                const savedSection = document.getElementById('saved-connections');
+                const items = document.getElementById('connections-items');
+
+                if (connections.length > 0) {
+                    savedSection.classList.remove('hidden');
+                    items.innerHTML = connections.map((conn) => `
                         <div class="p-3 bg-white border border-gray-200 rounded flex justify-between items-center">
                             <div>
                                 <p class="text-sm font-medium text-gray-900">${conn.label || conn.host}</p>
@@ -201,6 +204,14 @@
                             </div>
                         </div>
                     `).join('');
+                } else {
+                    savedSection.classList.add('hidden');
+                    items.innerHTML = '';
+                }
+
+                const addForm = document.getElementById('add-connection-form');
+                if (!isLocalOnly && addForm.classList.contains('hidden')) {
+                    document.getElementById('add-conn-btn').style.display = 'block';
                 }
             } catch (err) {
                 console.error('Failed to load connections:', err);
@@ -329,7 +340,6 @@
                 document.getElementById('conn-label').value = '';
                 document.getElementById('conn-test-status').textContent = '';
                 document.getElementById('add-connection-form').classList.add('hidden');
-                document.getElementById('add-conn-btn').style.display = 'block';
 
                 await loadConnections();
             } catch (err) {
