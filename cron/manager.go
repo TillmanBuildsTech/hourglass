@@ -19,6 +19,18 @@ const historyLogPathExpr = `"$HOME/.hourglass/history.log"`
 const hgMarkerPrefix = "[[hg:"
 const hgMarkerSuffix = "]]"
 
+// timestampExpr resolves to a millisecond unix timestamp on both GNU date
+// (Linux) and BSD date (macOS). GNU date supports "%3N" (3-digit
+// milliseconds); BSD date does not recognize the width-truncated form and
+// echoes it back with non-digit characters (e.g. "3N"), so the digit check
+// below is used to detect this rather than probing exit status - some BSD
+// date builds accept bare "%N" (nanoseconds) without erroring, which would
+// otherwise make an exit-status probe misidentify them as GNU date. Each
+// case pattern has a leading "(" - without it, some /bin/sh implementations
+// fail to parse a "case" inside a "$(...)" command substitution because the
+// pattern's closing ")" confuses paren-matching.
+const timestampExpr = `$(ms=$(date +%3N 2>/dev/null); case "$ms" in (""|*[!0-9]*) printf '%s000' "$(date +%s)" ;; (*) printf '%s%s' "$(date +%s)" "$ms" ;; esac)`
+
 // wrapCommandForHistory wraps command so that, whenever cron runs it, the
 // wrapper appends a "<unix-millis>\t<exit-code>\t<base64(command)>" record
 // to the Hourglass history log and then exits with the original command's
@@ -27,8 +39,8 @@ const hgMarkerSuffix = "]]"
 func wrapCommandForHistory(command string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(command))
 	return fmt.Sprintf(
-		`{ %s ; }; __hg_ec=$?; printf '%%s\t%%s\t%%s\n' "$(date +%%s%%3N)" "$__hg_ec" %s >> %s 2>/dev/null; exit $__hg_ec`,
-		command, shellQuote(encoded), historyLogPathExpr,
+		`{ %s ; }; __hg_ec=$?; printf '%%s\t%%s\t%%s\n' %s "$__hg_ec" %s >> %s 2>/dev/null; exit $__hg_ec`,
+		command, timestampExpr, shellQuote(encoded), historyLogPathExpr,
 	)
 }
 

@@ -15,8 +15,8 @@
 
 ## Requirements
 
-- **Linux** (20.04 LTS or newer) with GNU coreutils (`date`, `printf`) — the default on all mainstream distros
-- **crontab** installed
+- **Linux** (20.04 LTS or newer) or **macOS** (12 Monterey or newer)
+- `crontab` installed (included by default on both platforms)
 - Optional: Basic auth credentials (for remote access)
 
 ## Installation
@@ -30,6 +30,26 @@ wget https://github.com/TillmanBuildsTech/hourglass/releases/download/v1.0.0/hou
 chmod +x hourglass-linux-amd64
 sudo mv hourglass-linux-amd64 /usr/local/bin/hourglass
 ```
+
+### macOS
+
+Download the darwin binary:
+
+```bash
+curl -L https://github.com/TillmanBuildsTech/hourglass/releases/download/v0.2.0/hourglass-darwin-amd64 -o hourglass
+chmod +x hourglass
+sudo mv hourglass /usr/local/bin/
+```
+
+Or for Apple Silicon:
+
+```bash
+curl -L https://github.com/TillmanBuildsTech/hourglass/releases/download/v0.2.0/hourglass-darwin-arm64 -o hourglass
+chmod +x hourglass
+sudo mv hourglass /usr/local/bin/
+```
+
+**Note:** macOS may prompt for Full Disk Access the first time Hourglass reads or writes the crontab. Grant access in System Settings → Privacy & Security → Full Disk Access if prompted.
 
 ### Or Build from Source
 
@@ -234,10 +254,20 @@ Check if the backend API is running. Open browser DevTools (F12) and check the N
 
 **Solution:** Restart Hourglass and check logs.
 
+### "Operation not permitted" on macOS
+
+macOS requires Full Disk Access for crontab operations.
+
+**Solution:** Grant Full Disk Access to your terminal app (or to the `cron` binary):
+1. Open System Settings → Privacy & Security → Full Disk Access
+2. Add your terminal application (Terminal.app, iTerm2, etc.)
+3. Restart Hourglass
+
 ## Limitations
 
 - **Single Admin** — Only one person should edit jobs at a time. Concurrent edits may overwrite each other.
-- **Linux Only** — macOS and Windows support deferred. Requires GNU `date` for millisecond timestamps.
+- **Launchd Not Supported** — Hourglass manages crontab jobs (which macOS still supports). Native `launchd` integration is planned for a future release.
+- **Windows Not Supported** — Windows has no `crontab`; not currently planned.
 - **Hourglass-Managed Jobs Only** — Only jobs added/edited through Hourglass are wrapped to record execution history. Jobs added directly via `crontab -e` won't show a last-run status until saved through Hourglass.
 - **History Shows Latest Run Only** — Hourglass keeps the most recent execution per job, not a full history log (the `~/.hourglass/history.log` file itself does accumulate every run until you rotate or clear it).
 - **No Clustering** — Each instance manages its own crontab.

@@ -2,6 +2,7 @@ package cron
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -185,6 +186,48 @@ func TestWriteCrontabWrapsCommandForHistory(t *testing.T) {
 	}
 	if entries[0].Comment != "test" {
 		t.Errorf("Comment = %q, want %q", entries[0].Comment, "test")
+	}
+}
+
+func TestWrapCommandForHistoryProducesPortableTimestamp(t *testing.T) {
+	wrapped := wrapCommandForHistory("/bin/true")
+
+	// Must not depend on GNU-only "date +%s%3N" directly; must instead
+	// probe with the digit-checking fallback so it degrades gracefully
+	// on BSD date (macOS).
+	if !strings.Contains(wrapped, "date +%3N") {
+		t.Errorf("expected portable date probe in wrapper, got: %s", wrapped)
+	}
+	if !strings.Contains(wrapped, `[!0-9]`) {
+		t.Errorf("expected digit-check fallback (not an exit-status probe) in wrapper, got: %s", wrapped)
+	}
+
+	if !strings.Contains(wrapped, "history.log") {
+		t.Errorf("wrapper must log to history.log: %s", wrapped)
+	}
+}
+
+// TestTimestampExprIsPortable actually executes timestampExpr via sh -c on
+// this machine and verifies it produces a plausible millisecond unix
+// timestamp (all digits, right length) regardless of which date flavor
+// (GNU or BSD) is installed.
+func TestTimestampExprIsPortable(t *testing.T) {
+	out, err := exec.Command("sh", "-c", "printf '%s' "+timestampExpr).Output()
+	if err != nil {
+		t.Fatalf("timestampExpr failed to execute: %v", err)
+	}
+
+	ms := strings.TrimSpace(string(out))
+	if ms == "" {
+		t.Fatal("timestampExpr produced empty output")
+	}
+	for _, r := range ms {
+		if r < '0' || r > '9' {
+			t.Fatalf("timestampExpr produced non-digit output: %q", ms)
+		}
+	}
+	if len(ms) < 12 || len(ms) > 14 {
+		t.Fatalf("timestampExpr output %q does not look like a millisecond unix timestamp", ms)
 	}
 }
 
