@@ -5,22 +5,28 @@
 ## Features
 
 - 📋 **View all cron jobs** in a clean table interface
-- ⏱️ **See when each job last ran** (from system logs)
+- ⏱️ **See when each job last ran** (tracked automatically by Hourglass)
 - ✅ **View exit status** — success or failure at a glance
 - ✏️ **Add/edit/delete jobs** through the web UI
 - 🌐 **Connection manager** — manage multiple Hourglass instances from one place
+- 🤖 **MCP server** — let AI agents (Claude Desktop, Claude Code, etc.) list, create, edit, and delete cron jobs
 - 🔒 **No external dependencies** — single binary, runs anywhere
-- 🚀 **Auto-parse system logs** — no setup required
+- 🚀 **Auto-tracked execution history** — no setup required
 - 📱 **Responsive design** — works on desktop and mobile
 
 ## Requirements
 
-- **Linux** (20.04 LTS or newer)
-- **crontab** installed
-- **journalctl** available (comes with systemd)
+- **Linux** (20.04 LTS or newer) or **macOS** (12 Monterey or newer)
+- `crontab` installed (included by default on both platforms)
 - Optional: Basic auth credentials (for remote access)
 
 ## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install TillmanBuildsTech/tap/hourglass
+```
 
 ### Download Binary
 
@@ -31,6 +37,26 @@ wget https://github.com/TillmanBuildsTech/hourglass/releases/download/v1.0.0/hou
 chmod +x hourglass-linux-amd64
 sudo mv hourglass-linux-amd64 /usr/local/bin/hourglass
 ```
+
+### macOS
+
+Download the darwin binary:
+
+```bash
+curl -L https://github.com/TillmanBuildsTech/hourglass/releases/download/v0.2.0/hourglass-darwin-amd64 -o hourglass
+chmod +x hourglass
+sudo mv hourglass /usr/local/bin/
+```
+
+Or for Apple Silicon:
+
+```bash
+curl -L https://github.com/TillmanBuildsTech/hourglass/releases/download/v0.2.0/hourglass-darwin-arm64 -o hourglass
+chmod +x hourglass
+sudo mv hourglass /usr/local/bin/
+```
+
+**Note:** macOS may prompt for Full Disk Access the first time Hourglass reads or writes the crontab. Grant access in System Settings → Privacy & Security → Full Disk Access if prompted.
 
 ### Or Build from Source
 
@@ -155,7 +181,51 @@ ssh -L 8080:localhost:8080 user@remote-server
 # Visit http://localhost:8080 and enter credentials
 ```
 
+## MCP Server
+
+Hourglass can run as a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, so AI agents can list, create, edit, and delete cron jobs directly:
+
+```bash
+./hourglass --mcp
+```
+
+This starts Hourglass in stdio JSON-RPC mode instead of the web UI — it's meant to be spawned as a subprocess by an MCP client, not run interactively. It operates on the local crontab (the same one `./hourglass` manages by default) and exposes these tools:
+
+| Tool | What it does |
+|------|--------------|
+| `list_cron_jobs` | List all jobs with their index, schedule, command, comment, active state, and last run result |
+| `create_cron_job` | Add a new job (`schedule`, `command`, optional `comment`) |
+| `update_cron_job` | Replace the job at `index` with a new `schedule`/`command`/`comment`/`inactive` |
+| `delete_cron_job` | Delete the job at `index` |
+| `validate_cron_schedule` | Check a 5-field schedule string without writing anything |
+
+Indices come from `list_cron_jobs` and can shift after any add/delete, so agents should re-list before acting on a stale index.
+
+### Claude Desktop / Claude Code
+
+Add Hourglass to your MCP client's config (e.g. `claude_desktop_config.json`, or via `claude mcp add`):
+
+```json
+{
+  "mcpServers": {
+    "hourglass": {
+      "command": "/usr/local/bin/hourglass",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
 ## Configuration
+
+### Checking the Version
+
+The running version is shown in the web UI header, and available via:
+
+```bash
+./hourglass --version
+curl http://localhost:8080/api/version
+```
 
 ### Environment Variables
 
@@ -196,11 +266,11 @@ newgrp root
 hourglass
 ```
 
-### "journalctl: command not found"
+### Last run / status never shows up
 
-Systemd is not installed (rare on modern Linux).
+Hourglass tracks execution history by wrapping each job's command so it logs its exit code and timestamp to `~/.hourglass/history.log` (the home directory of whichever user's crontab is being managed — the local user, or the SSH-remote user). If that user has no writable `$HOME`, history silently stays empty. Jobs added outside Hourglass (directly via `crontab -e`) aren't wrapped either, so they won't show history until edited and saved through Hourglass.
 
-**Solution:** Install systemd or upgrade your OS.
+**Solution:** Make sure the crontab owner has a writable home directory.
 
 ### "No crontab found"
 
@@ -226,11 +296,22 @@ Check if the backend API is running. Open browser DevTools (F12) and check the N
 
 **Solution:** Restart Hourglass and check logs.
 
+### "Operation not permitted" on macOS
+
+macOS requires Full Disk Access for crontab operations.
+
+**Solution:** Grant Full Disk Access to your terminal app (or to the `cron` binary):
+1. Open System Settings → Privacy & Security → Full Disk Access
+2. Add your terminal application (Terminal.app, iTerm2, etc.)
+3. Restart Hourglass
+
 ## Limitations
 
 - **Single Admin** — Only one person should edit jobs at a time. Concurrent edits may overwrite each other.
-- **Linux Only** — macOS and Windows support deferred.
-- **History Limited** — Execution history is limited by system log retention (typically 1-4 weeks).
+- **Launchd Not Supported** — Hourglass manages crontab jobs (which macOS still supports). Native `launchd` integration is planned for a future release.
+- **Windows Not Supported** — Windows has no `crontab`; not currently planned.
+- **Hourglass-Managed Jobs Only** — Only jobs added/edited through Hourglass are wrapped to record execution history. Jobs added directly via `crontab -e` won't show a last-run status until saved through Hourglass.
+- **History Shows Latest Run Only** — Hourglass keeps the most recent execution per job, not a full history log (the `~/.hourglass/history.log` file itself does accumulate every run until you rotate or clear it).
 - **No Clustering** — Each instance manages its own crontab.
 
 ## Architecture
@@ -239,7 +320,7 @@ Check if the backend API is running. Open browser DevTools (F12) and check the N
 
 - **HTTP Server:** `net/http`
 - **Crontab I/O:** `os/exec` (runs `crontab` command)
-- **System Logs:** `os/exec` (runs `journalctl` command)
+- **Execution History:** Each managed job's command is wrapped so it appends its exit code and timestamp to `~/.hourglass/history.log`; Hourglass reads that file back (via the same local/SSH executor used for crontab I/O) instead of parsing system logs, since cron itself never reports exit codes to syslog.
 - **UI:** Single HTML file with inline CSS (Tailwind CDN) and vanilla JavaScript
 
 See [Design.md](Design.md) for detailed architecture decisions.

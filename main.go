@@ -3,7 +3,8 @@ package main
 import (
 	"embed"
 	"encoding/json"
-	"io/fs"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,11 +12,24 @@ import (
 
 	"github.com/TillmanBuildsTech/hourglass/connection"
 	"github.com/TillmanBuildsTech/hourglass/cron"
+	"github.com/TillmanBuildsTech/hourglass/mcp"
 	sshclient "github.com/TillmanBuildsTech/hourglass/ssh"
 )
 
 //go:embed ui/index.html ui/dist
 var uiFS embed.FS
+
+//go:embed VERSION
+var versionFS embed.FS
+
+// version is bumped in the VERSION file with every PR.
+func version() string {
+	b, err := versionFS.ReadFile("VERSION")
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(b))
+}
 
 type APIError struct {
 	Error string `json:"error"`
@@ -39,6 +53,15 @@ var cronManager *cron.Manager
 var connManager *connection.Manager
 
 func main() {
+	showVersion := flag.Bool("version", false, "print the Hourglass version and exit")
+	mcpMode := flag.Bool("mcp", false, "run as an MCP (Model Context Protocol) stdio server for AI agent integration, instead of the web UI")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("hourglass v%s\n", version())
+		return
+	}
+
 	var err error
 	connManager, err = connection.NewManager("")
 	if err != nil {
@@ -48,9 +71,15 @@ func main() {
 	cronManager = cron.NewManager()
 	cronManager.StartHistoryRefresh()
 
-	distFS, _ := fs.Sub(uiFS, "ui/dist")
+	if *mcpMode {
+		if err := mcp.NewServer(cronManager, version()).Serve(os.Stdin, os.Stdout); err != nil {
+			log.Fatalf("MCP server failed: %v", err)
+		}
+		return
+	}
+
 	http.HandleFunc("/", handleRoot)
-	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.FS(distFS))))
+	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/cron", handleCron)
 	http.HandleFunc("/api/cron/update", handleUpdateCron)
 	http.HandleFunc("/api/cron/execute", handleExecuteCron)
@@ -64,10 +93,15 @@ func main() {
 		addr = "127.0.0.1:8080"
 	}
 
-	log.Printf("Starting Hourglass on %s", addr)
+	log.Printf("Starting Hourglass v%s on %s", version(), addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(toJSON(map[string]string{"version": version()})))
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {

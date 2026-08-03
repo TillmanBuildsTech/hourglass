@@ -3,15 +3,15 @@ name: Build
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-latest]
         go-version: ['1.21', '1.22']
     steps:
       - uses: actions/checkout@v4
@@ -37,34 +37,3 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
         run: go build -o hourglass-${{ matrix.os }}-${{ matrix.arch }} .
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hourglass-${{ matrix.os }}-${{ matrix.arch }}
-          path: hourglass-${{ matrix.os }}-${{ matrix.arch }}
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Create checksums
-        run: |
-          cd artifacts
-          find . -type f -exec sha256sum {} \; > SHA256SUMS
-          cat SHA256SUMS
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/**/*
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
