@@ -37,12 +37,12 @@ async function loadConnections() {
             items.innerHTML = data.connections.map((conn) => `
                 <div class="p-3 bg-white border border-gray-200 rounded flex justify-between items-center">
                     <div>
-                        <p class="text-sm font-medium text-gray-900">${conn.label || conn.host}</p>
-                        <p class="text-xs text-gray-600">${conn.user}@${conn.host}:${conn.port}</p>
+                        <p class="text-sm font-medium text-gray-900">${escapeHtml(conn.label || conn.host)}</p>
+                        <p class="text-xs text-gray-600">${escapeHtml(conn.user)}@${escapeHtml(conn.host)}:${escapeHtml(conn.port)}</p>
                     </div>
                     <div class="flex gap-2">
-                        <button onclick="switchConnection('${conn.id}')" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>
-                        <button onclick="removeConnection('${conn.id}')" class="text-xs text-red-600 hover:text-red-900">Remove</button>
+                        <button onclick="switchConnection('${escapeHtml(conn.id)}')" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>
+                        <button onclick="removeConnection('${escapeHtml(conn.id)}')" class="text-xs text-red-600 hover:text-red-900">Remove</button>
                     </div>
                 </div>
             `).join('');
@@ -234,6 +234,26 @@ function formatRelativeTime(timestamp) {
     return `${days}d ago`;
 }
 
+function escapeHtml(str) {
+    return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+const ICONS = {
+    run: '<svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M6.5 4.6c0-.9 1-1.5 1.8-1l7.6 4.9a1.2 1.2 0 0 1 0 2l-7.6 5c-.8.5-1.8-.1-1.8-1V4.6Z"/></svg>',
+    pause: '<svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M6 4.5a1 1 0 0 1 1-1h1.5a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-11Zm5.5 0a1 1 0 0 1 1-1H14a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-1.5a1 1 0 0 1-1-1v-11Z"/></svg>',
+    edit: '<svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M13.6 2.8a1.6 1.6 0 0 1 2.3 0l1.3 1.3a1.6 1.6 0 0 1 0 2.3L16 7.6 12.4 4l1.2-1.2ZM11 5.4 3 13.4V17h3.6l8-8L11 5.4Z"/></svg>',
+    delete: '<svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path fill-rule="evenodd" d="M8 2a1 1 0 0 0-1 1v1H4a1 1 0 1 0 0 2h.4l.7 10.1A2 2 0 0 0 7.1 18h5.8a2 2 0 0 0 2-1.9L15.6 6h.4a1 1 0 1 0 0-2h-3V3a1 1 0 0 0-1-1H8Zm1 2h2V4H9v0Zm-1.6 4a.8.8 0 0 1 1.6 0v6a.8.8 0 0 1-1.6 0V8Zm4.8 0a.8.8 0 0 1 1.6 0v6a.8.8 0 0 1-1.6 0V8Z" clip-rule="evenodd"/></svg>',
+};
+
+function iconButton(icon, onclick, title, colorClass) {
+    return `<button onclick="${onclick}" class="p-1.5 rounded hover:bg-gray-100 ${colorClass}" title="${title}" aria-label="${title}">${ICONS[icon]}</button>`;
+}
+
 function renderJobs() {
     const tbody = document.getElementById('jobs-table');
     if (jobs.length === 0) {
@@ -243,23 +263,25 @@ function renderJobs() {
 
     tbody.innerHTML = jobs.map((job, idx) => {
         const lastRun = formatRelativeTime(job.LastRun);
-        const statusClass = !job.LastRun ? 'status-never' : (job.LastStatus === 'success' ? 'status-success' : 'status-failed');
+        const statusClass = !job.LastRun ? 'text-gray-400' : (job.LastStatus === 'success' ? 'text-green-600' : 'text-red-600');
         const statusText = !job.LastRun ? '-' : (job.LastStatus === 'success' ? '✓' : '✗');
         const stateText = job.Inactive ? '🚫 Disabled' : '✓ Enabled';
         const stateClass = job.Inactive ? 'text-gray-500' : 'text-green-600';
 
         return `
             <tr class="hover:bg-gray-50 ${job.Inactive ? 'opacity-60' : ''}">
-                <td class="px-6 py-4 text-sm font-mono text-gray-900">${job.Schedule}</td>
-                <td class="px-6 py-4 text-sm text-gray-900 truncate">${job.Command}</td>
+                <td class="px-6 py-4 text-sm font-mono text-gray-900">${escapeHtml(job.Schedule)}</td>
+                <td class="px-6 py-4 text-sm text-gray-900 truncate max-w-[240px]" title="${escapeHtml(job.Command)}">${escapeHtml(job.Command)}</td>
                 <td class="px-6 py-4 text-sm text-gray-600">${lastRun}</td>
                 <td class="px-6 py-4 text-sm font-semibold ${statusClass}">${statusText}</td>
                 <td class="px-6 py-4 text-sm text-center ${stateClass}">${stateText}</td>
-                <td class="px-6 py-4 text-sm text-right space-x-2">
-                    ${!job.Inactive ? `<button onclick="executeJob(${idx})" class="text-orange-600 hover:text-orange-900" title="Run now">Run</button>` : ''}
-                    <button onclick="toggleJob(${idx})" class="text-yellow-600 hover:text-yellow-900" title="${job.Inactive ? 'Enable' : 'Disable'}">${job.Inactive ? 'Enable' : 'Disable'}</button>
-                    <button onclick="editJob(${idx})" class="text-blue-600 hover:text-blue-900">Edit</button>
-                    <button onclick="deleteJob(${idx})" class="text-red-600 hover:text-red-900">Delete</button>
+                <td class="px-6 py-4 text-sm text-right">
+                    <div class="flex justify-end items-center gap-1">
+                        ${!job.Inactive ? iconButton('run', `executeJob(${idx})`, 'Run now', 'text-orange-600 hover:text-orange-900') : ''}
+                        ${iconButton(job.Inactive ? 'run' : 'pause', `toggleJob(${idx})`, job.Inactive ? 'Enable' : 'Disable', 'text-yellow-600 hover:text-yellow-900')}
+                        ${iconButton('edit', `editJob(${idx})`, 'Edit', 'text-blue-600 hover:text-blue-900')}
+                        ${iconButton('delete', `deleteJob(${idx})`, 'Delete', 'text-red-600 hover:text-red-900')}
+                    </div>
                 </td>
             </tr>
         `;
@@ -415,6 +437,27 @@ function clearError() {
     document.getElementById('error-banner').classList.add('hidden');
 }
 
+async function initVersion() {
+    try {
+        const resp = await fetch('/api/version');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        document.getElementById('app-version').textContent = data.version ? `v${data.version}` : '';
+
+        if (data.goos === 'darwin' && !sessionStorage.getItem('hourglass-macos-banner-dismissed')) {
+            document.getElementById('macos-banner').classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Failed to load version:', err);
+    }
+}
+
+document.getElementById('macos-banner-dismiss').addEventListener('click', () => {
+    document.getElementById('macos-banner').classList.add('hidden');
+    sessionStorage.setItem('hourglass-macos-banner-dismissed', '1');
+});
+
+initVersion();
 initConnections();
 loadJobs();
 setInterval(loadJobs, 30000);

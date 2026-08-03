@@ -182,11 +182,11 @@ func StringifyCrontab(entries []Entry) string {
 	var lines []string
 	for _, e := range entries {
 		if e.Inactive {
-			lines = append(lines, "# "+e.Schedule+" "+e.Command)
+			lines = append(lines, "# "+e.Schedule+" "+escapePercent(e.Command))
 		} else {
-			line := e.Schedule + " " + e.Command
+			line := e.Schedule + " " + escapePercent(e.Command)
 			if e.Comment != "" {
-				line += " # " + e.Comment
+				line += " # " + escapePercent(e.Comment)
 			}
 			lines = append(lines, line)
 		}
@@ -195,4 +195,28 @@ func StringifyCrontab(entries []Entry) string {
 		return ""
 	}
 	return strings.Join(lines, "\n")
+}
+
+// escapePercent escapes bare '%' characters for a crontab command field. Per
+// crontab(5), cron treats an unescaped '%' as a newline - it splits the
+// command there and feeds everything after it to the job's stdin instead of
+// running it - unless the '%' is preceded by a backslash. wrapCommandForHistory
+// embeds literal '%' characters (printf format specifiers, "date +%3N"), so
+// without this, cron silently truncates every wrapped command right before
+// the history-log write and never runs it.
+func escapePercent(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && s[i+1] == '%' {
+			b.WriteByte('\\')
+			b.WriteByte('%')
+			i++
+			continue
+		}
+		if s[i] == '%' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
