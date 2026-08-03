@@ -22,6 +22,14 @@
 
         <div id="error-banner" class="hidden mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded"></div>
 
+        <div id="macos-banner" class="hidden mb-4 p-4 bg-amber-50 border border-amber-300 text-amber-800 rounded text-sm flex justify-between items-start gap-4">
+            <div>
+                <p class="font-semibold">Scheduled jobs not running?</p>
+                <p class="mt-1">macOS requires <span class="font-medium">Full Disk Access</span> for <code class="bg-amber-100 px-1 rounded">cron</code> to actually execute jobs — otherwise it silently does nothing. Open System Settings → Privacy &amp; Security → Full Disk Access and add <code class="bg-amber-100 px-1 rounded">cron</code> (or your terminal app), then restart Hourglass. Use "Run" on a job to test execution immediately without waiting on the schedule.</p>
+            </div>
+            <button id="macos-banner-dismiss" class="text-amber-600 hover:text-amber-900 shrink-0" title="Dismiss">✕</button>
+        </div>
+
         <div id="connections-panel" class="hidden mb-8 bg-white rounded-lg shadow p-6">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-lg font-semibold text-gray-900">Connection Manager</h2>
@@ -102,7 +110,7 @@
                             </thead>
                             <tbody id="jobs-table" class="divide-y divide-gray-200">
                                 <tr class="text-center py-8">
-                                    <td colspan="5" class="px-6 py-12 text-gray-500">Loading...</td>
+                                    <td colspan="6" class="px-6 py-12 text-gray-500">Loading...</td>
                                 </tr>
                             </tbody>
                         </table>

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -107,7 +108,7 @@ func main() {
 
 func handleVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(toJSON(map[string]string{"version": version()})))
+	w.Write([]byte(toJSON(map[string]string{"version": version(), "goos": runtime.GOOS})))
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +149,7 @@ func handleGetCron(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("[]"))
 			return
 		}
+		log.Printf("failed to read crontab: %v", err)
 		http.Error(w, toJSON(APIError{"Failed to read crontab"}), http.StatusInternalServerError)
 		return
 	}
@@ -190,6 +192,7 @@ func handlePostCron(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
 			return
 		}
+		log.Printf("failed to add cron entry (schedule=%q command=%q): %v", entry.Schedule, entry.Command, err)
 		http.Error(w, toJSON(APIError{"Failed to add job"}), http.StatusInternalServerError)
 		return
 	}
@@ -206,6 +209,7 @@ func handleDeleteCron(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := cronManager.DeleteEntry(req.Index); err != nil {
+		log.Printf("failed to delete cron entry (index=%d): %v", req.Index, err)
 		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
 		return
 	}
@@ -244,6 +248,7 @@ func handleUpdateCron(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
 			return
 		}
+		log.Printf("failed to update cron entry (index=%d schedule=%q command=%q): %v", req.Index, entry.Schedule, entry.Command, err)
 		http.Error(w, toJSON(APIError{err.Error()}), http.StatusInternalServerError)
 		return
 	}
@@ -446,6 +451,7 @@ func handleExecuteCron(w http.ResponseWriter, r *http.Request) {
 	job := entries[req.Index]
 	output, err := cronManager.ExecuteCommand(job.Command)
 	if err != nil {
+		log.Printf("failed to execute cron job (index=%d command=%q): %v", req.Index, job.Command, err)
 		http.Error(w, toJSON(APIError{"Failed to execute: " + err.Error()}), http.StatusInternalServerError)
 		return
 	}
@@ -483,6 +489,7 @@ func handleToggleCron(w http.ResponseWriter, r *http.Request) {
 
 	entries[req.Index].Inactive = !entries[req.Index].Inactive
 	if err := cronManager.WriteCrontab(entries); err != nil {
+		log.Printf("failed to toggle cron entry (index=%d): %v", req.Index, err)
 		http.Error(w, toJSON(APIError{err.Error()}), http.StatusInternalServerError)
 		return
 	}

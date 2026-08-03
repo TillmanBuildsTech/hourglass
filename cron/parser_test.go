@@ -99,6 +99,30 @@ func TestStringifyCrontab(t *testing.T) {
 	}
 }
 
+// TestStringifyCrontabEscapesPercent guards against a real bug: crontab(5)
+// treats a bare '%' in the command field as a newline, splitting the command
+// there and feeding the remainder to the job's stdin instead of running it.
+// wrapCommandForHistory's printf/date literals contain bare '%' characters,
+// which silently truncated every history-tracking write before this fix.
+func TestStringifyCrontabEscapesPercent(t *testing.T) {
+	entries := []Entry{
+		{Schedule: "* * * * *", Command: `printf '%s\n' hi`, Comment: "50% done"},
+	}
+
+	output := StringifyCrontab(entries)
+	expected := `* * * * * printf '\%s\n' hi # 50\% done`
+
+	if output != expected {
+		t.Errorf("StringifyCrontab output:\ngot:\n%s\nwant:\n%s", output, expected)
+	}
+
+	// A '%' already escaped by the caller must not be double-escaped.
+	already := StringifyCrontab([]Entry{{Schedule: "* * * * *", Command: `echo \%s`}})
+	if already != `* * * * * echo \%s` {
+		t.Errorf("already-escaped %% was mangled: %s", already)
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	original := "0 9 * * * /usr/bin/backup.sh\n*/5 * * * * /usr/bin/check-disk.sh"
 
