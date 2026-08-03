@@ -1,0 +1,60 @@
+version: 2
+
+project_name: hourglass
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hourglass
+    main: .
+    binary: hourglass
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: TillmanBuildsTech
+    name: hourglass
+
+homebrew_casks:
+  - name: hourglass
+    binaries:
+      - hourglass
+    directory: Casks
+    homepage: "https://github.com/TillmanBuildsTech/hourglass"
+    description: "Self-hosted web UI for managing Linux and macOS cron jobs"
+    commit_msg_template: "Update {{ .ProjectName }} to {{ .Tag }}"
+    commit_author:
+      name: goreleaser-bot
+      email: actions@github.com
+    repository:
+      owner: TillmanBuildsTech
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
