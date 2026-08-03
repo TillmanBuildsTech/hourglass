@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -17,7 +18,7 @@ import (
 	sshclient "github.com/TillmanBuildsTech/hourglass/ssh"
 )
 
-//go:embed ui/index.html
+//go:embed ui
 var uiFS embed.FS
 
 //go:embed VERSION
@@ -81,6 +82,8 @@ func main() {
 		return
 	}
 
+	distFS, _ := fs.Sub(uiFS, "ui/dist")
+	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.FS(distFS))))
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/cron", handleCron)
