@@ -29,4 +29,69 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+  homebrew-formula:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute source tarball checksum
+        id: vars
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          URL="https://github.com/TillmanBuildsTech/hourglass/archive/refs/tags/${TAG}.tar.gz"
+          curl -sL --fail "$URL" -o source.tar.gz
+          SHA256=$(sha256sum source.tar.gz | cut -d' ' -f1)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: TillmanBuildsTech/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          path: tap
+
+      - name: Write formula
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+          SHA256: ${{ steps.vars.outputs.sha256 }}
+        run: |
+          mkdir -p tap/Formula
+          rm -f tap/Casks/hourglass.rb
+          cat > tap/Formula/hourglass.rb <<EOF
+          class Hourglass < Formula
+            desc "Self-hosted web UI for managing Linux and macOS cron jobs"
+            homepage "https://github.com/TillmanBuildsTech/hourglass"
+            url "https://github.com/TillmanBuildsTech/hourglass/archive/refs/tags/${TAG}.tar.gz"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "go" => :build
+            depends_on "node" => :build
+
+            def install
+              cd "ui" do
+                system "npm", "install"
+                system "npm", "run", "build"
+              end
+              system "go", "build", *std_go_args(ldflags: "-s -w"), "."
+            end
+
+            test do
+              assert_match "hourglass v#{version}", shell_output("#{bin}/hourglass --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        working-directory: tap
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          git config user.name "goreleaser-bot"
+          git config user.email "actions@github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "hourglass ${TAG}"
+          git push
