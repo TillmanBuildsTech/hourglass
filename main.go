@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/TillmanBuildsTech/hourglass/connection"
 	"github.com/TillmanBuildsTech/hourglass/cron"
 	"github.com/TillmanBuildsTech/hourglass/mcp"
@@ -53,6 +54,8 @@ var cronManager *cron.Manager
 var connManager *connection.Manager
 
 func main() {
+	godotenv.Load()
+
 	showVersion := flag.Bool("version", false, "print the Hourglass version and exit")
 	mcpMode := flag.Bool("mcp", false, "run as an MCP (Model Context Protocol) stdio server for AI agent integration, instead of the web UI")
 	flag.Parse()
