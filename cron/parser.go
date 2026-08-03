@@ -17,18 +17,37 @@ func ParseCrontab(text string) ([]Entry, error) {
 	var entries []Entry
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if line == "" {
 			continue
 		}
+
+		inactive := false
+		if strings.HasPrefix(line, "#") {
+			// Check if this is a commented-out cron job
+			commentedLine := strings.TrimSpace(line[1:])
+			if isValidCronLine(commentedLine) {
+				line = commentedLine
+				inactive = true
+			} else {
+				continue
+			}
+		}
+
 		entry, err := parseLine(line)
 		if err != nil {
 			return nil, fmt.Errorf("parse error: %w", err)
 		}
 		if entry != nil {
+			entry.Inactive = inactive
 			entries = append(entries, *entry)
 		}
 	}
 	return entries, nil
+}
+
+func isValidCronLine(line string) bool {
+	parts := strings.Fields(line)
+	return len(parts) >= 6
 }
 
 func parseLine(line string) (*Entry, error) {

@@ -1,0 +1,23 @@
+{
+  "name": "hourglass",
+  "version": "0.0.1",
+  "description": "Hourglass is a lightweight, self-hosted web UI for managing Linux cron jobs. See your scheduled tasks, view execution history, and add/edit/delete jobs without touching the command line.",
+  "main": "./src/index.js",
+  "scripts": {
+    "build": "npx terser ./src/index.js -o ./dist/index.min.js -c -m && tailwindcss -i ./src/index.css -o ./dist/index.css --minify",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://TillmanBuildsTech/hourglass"
+  },
+  "keywords": [
+    "cron"
+  ],
+  "author": "TillmanBuildsTech.com",
+  "license": "MIT",
+  "dependencies": {
+    "@tailwindcss/cli": "^4.3.2",
+    "tailwindcss": "^4.3.2"
+  }
+}

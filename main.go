@@ -39,6 +39,7 @@ type Entry struct {
 	Schedule   string `json:"Schedule"`
 	Command    string `json:"Command"`
 	Comment    string `json:"Comment,omitempty"`
+	Inactive   bool   `json:"Inactive,omitempty"`
 	LastRun    *int64 `json:"LastRun,omitempty"`
 	LastStatus string `json:"LastStatus,omitempty"`
 	LastCode   int    `json:"LastCode,omitempty"`
@@ -80,6 +81,9 @@ func main() {
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/cron", handleCron)
+	http.HandleFunc("/api/cron/update", handleUpdateCron)
+	http.HandleFunc("/api/cron/execute", handleExecuteCron)
+	http.HandleFunc("/api/cron/toggle", handleToggleCron)
 	http.HandleFunc("/api/connections", handleConnections)
 	http.HandleFunc("/api/connections/active", handleConnectionActive)
 	http.HandleFunc("/api/connections/test", handleConnectionTest)
@@ -148,6 +152,7 @@ func handleGetCron(w http.ResponseWriter, r *http.Request) {
 			Schedule: e.Schedule,
 			Command:  e.Command,
 			Comment:  e.Comment,
+			Inactive: e.Inactive,
 		}
 
 		if exec := cronManager.GetLastExecution(e.Command); exec != nil {
@@ -196,6 +201,44 @@ func handleDeleteCron(w http.ResponseWriter, r *http.Request) {
 
 	if err := cronManager.DeleteEntry(req.Index); err != nil {
 		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+		return
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
+}
+
+func handleUpdateCron(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "PUT" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Index   int    `json:"index"`
+		Schedule string `json:"Schedule"`
+		Command  string `json:"Command"`
+		Comment  string `json:"Comment,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	entry := cron.Entry{
+		Schedule: req.Schedule,
+		Command:  req.Command,
+		Comment:  req.Comment,
+	}
+
+	if err := cronManager.UpdateEntry(req.Index, entry); err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, toJSON(APIError{err.Error()}), http.StatusInternalServerError)
 		return
 	}
 
@@ -360,6 +403,81 @@ func handleConnectionTest(w http.ResponseWriter, r *http.Request) {
 
 	if err := sshclient.TestConnection(req.Host, req.Port, req.User, req.KeyPath); err != nil {
 		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
+		return
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
+}
+
+func handleExecuteCron(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Index int `json:"index"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	entries, err := cronManager.GetEntries()
+	if err != nil {
+		http.Error(w, toJSON(APIError{"Failed to get jobs"}), http.StatusInternalServerError)
+		return
+	}
+
+	if req.Index < 0 || req.Index >= len(entries) {
+		http.Error(w, toJSON(APIError{"Invalid job index"}), http.StatusBadRequest)
+		return
+	}
+
+	job := entries[req.Index]
+	output, err := cronManager.ExecuteCommand(job.Command)
+	if err != nil {
+		http.Error(w, toJSON(APIError{"Failed to execute: " + err.Error()}), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"status": "ok", "output": output})))
+}
+
+func handleToggleCron(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Index int `json:"index"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, toJSON(APIError{"Invalid JSON"}), http.StatusBadRequest)
+		return
+	}
+
+	entries, err := cronManager.GetEntries()
+	if err != nil {
+		http.Error(w, toJSON(APIError{"Failed to get jobs"}), http.StatusInternalServerError)
+		return
+	}
+
+	if req.Index < 0 || req.Index >= len(entries) {
+		http.Error(w, toJSON(APIError{"Invalid job index"}), http.StatusBadRequest)
+		return
+	}
+
+	entries[req.Index].Inactive = !entries[req.Index].Inactive
+	if err := cronManager.WriteCrontab(entries); err != nil {
+		http.Error(w, toJSON(APIError{err.Error()}), http.StatusInternalServerError)
 		return
 	}
 

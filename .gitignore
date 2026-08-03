@@ -1,6 +1,16 @@
 .DS_Store
-
 .env
 
+# Go binaries
 /bin/*
 /dist
+hourglass
+
+# Test coverage
+coverage.out
+*.prof
+
+# Node/npm
+ui/node_modules/
+ui/dist/
+ui/package-lock.json

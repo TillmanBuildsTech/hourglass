@@ -248,3 +248,7 @@ func (m *Manager) deleteCrontab() error {
 	}
 	return nil
 }
+
+func (m *Manager) ExecuteCommand(command string) (string, error) {
+	return m.executor.Execute(command)
+}

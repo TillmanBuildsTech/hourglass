@@ -45,9 +45,15 @@ func (c *Client) Execute(command string) (string, error) {
 
 	err := sshCmd.Run()
 	output := out.String()
+	errOutput := errOut.String()
+
+	// For crontab -l, exit code 1 with "no crontab" message is not an error
+	if err != nil && strings.Contains(errOutput, "no crontab") {
+		return "", nil
+	}
 
 	if err != nil {
-		return output + errOut.String(), err
+		return output + errOutput, err
 	}
 
 	return output, nil
