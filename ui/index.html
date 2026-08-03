@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hourglass — Crontab Manager</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="dist/index.css">
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        /* body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         .status-success { @apply text-green-600; }
         .status-failed { @apply text-red-600; }
-        .status-never { @apply text-gray-400; }
+        .status-never { @apply text-gray-400; } */
     </style>
 </head>
 <body class="bg-gray-50">
@@ -102,6 +103,7 @@
                                     <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Command</th>
                                     <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Last Run</th>
                                     <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                                    <th class="px-6 py-3 text-center text-sm font-semibold text-gray-900">State</th>
                                     <th class="px-6 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
                                 </tr>
                             </thead>
@@ -152,8 +154,8 @@
             </div>
         </div>
     </div>
-
-    <script>
+<script type="text/javascript" src="dist/index.min.js"></script>
+    <!-- <script>
         let jobs = [];
         let deleteIndex = -1;
         let editIndex = -1;
@@ -392,7 +394,7 @@
         function renderJobs() {
             const tbody = document.getElementById('jobs-table');
             if (jobs.length === 0) {
-                tbody.innerHTML = '<tr class="text-center"><td colspan="5" class="px-6 py-12 text-gray-500">No cron jobs</td></tr>';
+                tbody.innerHTML = '<tr class="text-center"><td colspan="6" class="px-6 py-12 text-gray-500">No cron jobs</td></tr>';
                 return;
             }
 
@@ -400,14 +402,19 @@
                 const lastRun = formatRelativeTime(job.LastRun);
                 const statusClass = !job.LastRun ? 'status-never' : (job.LastStatus === 'success' ? 'status-success' : 'status-failed');
                 const statusText = !job.LastRun ? '-' : (job.LastStatus === 'success' ? '✓' : '✗');
+                const stateText = job.Inactive ? '🚫 Disabled' : '✓ Enabled';
+                const stateClass = job.Inactive ? 'text-gray-500' : 'text-green-600';
 
                 return `
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-gray-50 ${job.Inactive ? 'opacity-60' : ''}">
                         <td class="px-6 py-4 text-sm font-mono text-gray-900">${job.Schedule}</td>
                         <td class="px-6 py-4 text-sm text-gray-900 truncate">${job.Command}</td>
                         <td class="px-6 py-4 text-sm text-gray-600">${lastRun}</td>
                         <td class="px-6 py-4 text-sm font-semibold ${statusClass}">${statusText}</td>
+                        <td class="px-6 py-4 text-sm text-center ${stateClass}">${stateText}</td>
                         <td class="px-6 py-4 text-sm text-right space-x-2">
+                            ${!job.Inactive ? `<button onclick="executeJob(${idx})" class="text-orange-600 hover:text-orange-900" title="Run now">Run</button>` : ''}
+                            <button onclick="toggleJob(${idx})" class="text-yellow-600 hover:text-yellow-900" title="${job.Inactive ? 'Enable' : 'Disable'}">${job.Inactive ? 'Enable' : 'Disable'}</button>
                             <button onclick="editJob(${idx})" class="text-blue-600 hover:text-blue-900">Edit</button>
                             <button onclick="deleteJob(${idx})" class="text-red-600 hover:text-red-900">Delete</button>
                         </td>
@@ -439,6 +446,48 @@
         function deleteJob(idx) {
             deleteIndex = idx;
             document.getElementById('delete-modal').classList.remove('hidden');
+        }
+
+        async function executeJob(idx) {
+            try {
+                const resp = await fetch('/api/cron/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: idx })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showError('Failed to execute job: ' + err.error);
+                    return;
+                }
+
+                const data = await resp.json();
+                showError(`✓ Job executed: ${data.output ? data.output.substring(0, 100) : 'completed'}`);
+                setTimeout(loadJobs, 2000);
+            } catch (err) {
+                showError('Failed to execute job: ' + err.message);
+            }
+        }
+
+        async function toggleJob(idx) {
+            try {
+                const resp = await fetch('/api/cron/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: idx })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showError('Failed to toggle job: ' + err.error);
+                    return;
+                }
+
+                await loadJobs();
+            } catch (err) {
+                showError('Failed to toggle job: ' + err.message);
+            }
         }
 
         document.getElementById('cancel-edit-btn').addEventListener('click', (e) => {
@@ -480,25 +529,29 @@
 
             try {
                 if (editIndex >= 0) {
-                    // Delete old job first, then add new one
-                    const deleteResp = await fetch('/api/cron', {
-                        method: 'DELETE',
+                    // Update existing job
+                    const resp = await fetch('/api/cron/update', {
+                        method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ index: editIndex })
+                        body: JSON.stringify({ index: editIndex, Schedule: schedule, Command: command, Comment: comment })
                     });
 
-                    if (!deleteResp.ok) throw new Error('Failed to delete old job');
-                }
+                    if (!resp.ok) {
+                        const err = await resp.json();
+                        throw new Error(err.error || 'Failed to update job');
+                    }
+                } else {
+                    // Add new job
+                    const resp = await fetch('/api/cron', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ Schedule: schedule, Command: command, Comment: comment })
+                    });
 
-                const resp = await fetch('/api/cron', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ Schedule: schedule, Command: command, Comment: comment })
-                });
-
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    throw new Error(err.error || 'Failed to save job');
+                    if (!resp.ok) {
+                        const err = await resp.json();
+                        throw new Error(err.error || 'Failed to add job');
+                    }
                 }
 
                 document.getElementById('add-job-form').reset();
@@ -522,6 +575,6 @@
         initConnections();
         loadJobs();
         setInterval(loadJobs, 30000);
-    </script>
+    </script> -->
 </body>
 </html>

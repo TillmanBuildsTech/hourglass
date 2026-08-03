@@ -60,6 +60,7 @@ func NewManagerWithExecutor(executor Executor) *Manager {
 
 func (m *Manager) SetExecutor(executor Executor) {
 	m.executor = executor
+	m.cache.SetExecutor(executor)
 }
 
 func (m *Manager) ReadCrontab() (string, error) {
@@ -150,4 +151,8 @@ func (m *Manager) deleteCrontab() error {
 		return fmt.Errorf("failed to delete crontab: %w", err)
 	}
 	return nil
+}
+
+func (m *Manager) ExecuteCommand(command string) (string, error) {
+	return m.executor.Execute(command)
 }
