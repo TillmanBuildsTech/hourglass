@@ -3,6 +3,7 @@ package cron
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,8 +131,23 @@ func (m *Manager) GetLastExecution(cmd string) *Execution {
 func (m *Manager) StartHistoryRefresh() {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
+		var lastErr string
+
+		// The ticker's channel is unbuffered beyond one pending tick, so a
+		// slow Refresh call (bounded by ssh.Client's own timeout) naturally
+		// can't overlap with the next one - the loop just picks up the next
+		// tick once it returns.
 		for range ticker.C {
-			m.cache.Refresh(m.executor)
+			err := m.cache.Refresh(m.executor)
+
+			switch {
+			case err != nil && err.Error() != lastErr:
+				log.Printf("cron: history refresh failed: %v", err)
+				lastErr = err.Error()
+			case err == nil && lastErr != "":
+				log.Printf("cron: history refresh recovered")
+				lastErr = ""
+			}
 		}
 	}()
 }
