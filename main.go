@@ -16,7 +16,7 @@ import (
 	sshclient "github.com/TillmanBuildsTech/hourglass/ssh"
 )
 
-//go:embed ui/index.html ui/dist
+//go:embed ui/index.html
 var uiFS embed.FS
 
 //go:embed VERSION
