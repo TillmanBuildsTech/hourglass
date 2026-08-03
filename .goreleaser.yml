@@ -42,19 +42,10 @@ release:
     owner: TillmanBuildsTech
     name: hourglass
 
-homebrew_casks:
-  - name: hourglass
-    binaries:
-      - hourglass
-    directory: Casks
-    homepage: "https://github.com/TillmanBuildsTech/hourglass"
-    description: "Self-hosted web UI for managing Linux and macOS cron jobs"
-    commit_msg_template: "Update {{ .ProjectName }} to {{ .Tag }}"
-    commit_author:
-      name: goreleaser-bot
-      email: actions@github.com
-    repository:
-      owner: TillmanBuildsTech
-      name: homebrew-tap
-      branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+# Homebrew distribution is handled separately (see .github/workflows/release.yml,
+# job `homebrew-formula`) as a build-from-source Formula rather than a
+# goreleaser cask. Casks ship precompiled, unsigned darwin binaries, which
+# macOS Gatekeeper quarantines and flags with a security warning. A Formula
+# that compiles on the user's machine via `depends_on "go" => :build` avoids
+# that entirely, since Gatekeeper only inspects downloaded executables, not
+# ones built locally.

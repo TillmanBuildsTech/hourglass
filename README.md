@@ -28,6 +28,11 @@
 brew install TillmanBuildsTech/tap/hourglass
 ```
 
+This builds Hourglass from source on your machine (Homebrew installs Go and
+Node as temporary build dependencies). It only takes a few seconds, and
+because the binary is compiled locally rather than downloaded, macOS
+Gatekeeper won't flag it with a security warning.
+
 ### Download Binary
 
 Download the latest binary for your platform from [GitHub Releases](https://github.com/TillmanBuildsTech/hourglass/releases):
