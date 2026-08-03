@@ -22,6 +22,12 @@
 
 ## Installation
 
+### Homebrew (macOS)
+
+```bash
+brew install TillmanBuildsTech/tap/hourglass
+```
+
 ### Download Binary
 
 Download the latest binary for your platform from [GitHub Releases](https://github.com/TillmanBuildsTech/hourglass/releases):
