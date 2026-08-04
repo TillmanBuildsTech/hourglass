@@ -11,6 +11,12 @@
 
   <!-- ── Header ── -->
   <header class="app-header">
+    <button class="sidebar-hamburger" id="sidebar-hamburger" aria-label="Toggle sidebar">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M3 6h18M3 12h18M3 18h18"/>
+      </svg>
+    </button>
+
     <div class="brand">
       <svg class="brand-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 2h14M5 22h14"/>
@@ -30,7 +36,6 @@
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
         </svg>
       </button>
-
       <div class="conn-pill">
         <span class="status-dot"></span>
         <span>Connected:&nbsp;</span>
@@ -42,18 +47,21 @@
     <button id="connections-toggle" style="display:none" aria-hidden="true"></button>
   </header>
 
+  <!-- Mobile sidebar backdrop -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
   <!-- ── Body ── -->
   <div class="app-body">
 
     <!-- ── Sidebar: Connection Manager ── -->
     <aside class="sidebar" id="connections-panel">
-      <!-- kept for JS compatibility -->
-      <button id="connections-close" style="display:none" aria-hidden="true"></button>
+      <div class="sidebar-top">
+        <span class="sidebar-label">Connection Manager</span>
+        <button class="sidebar-close-btn" id="sidebar-close" aria-label="Close sidebar">×</button>
+      </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-label">Connection Manager</div>
-
-        <!-- Current / local connection -->
+      <!-- Current / local connection -->
+      <div class="sidebar-section" style="padding-top:0">
         <div id="connections-list">
           <div id="current-connection" class="conn-card active">
             <div class="conn-icon">
@@ -87,50 +95,11 @@
       <!-- Local-only info note -->
       <div id="local-only-message" class="info-note hidden">
         Running locally — cannot add remote connections.<br>
-        Use SSH tunneling to access remote servers:<br>
+        Use SSH tunneling:<br>
         <code>ssh -L 8080:localhost:8080 user@server</code>
       </div>
 
       <div class="divider"></div>
-
-      <!-- Add connection form (embedded in sidebar) -->
-      <div id="add-connection-form" class="conn-form hidden">
-        <div class="conn-form-title">Add SSH Connection</div>
-
-        <div class="f-field">
-          <label class="f-label" for="conn-host">Hostname or IP</label>
-          <input type="text" id="conn-host" placeholder="server.example.com" class="f-input">
-        </div>
-
-        <div class="conn-form-grid">
-          <div class="f-field">
-            <label class="f-label" for="conn-port">SSH Port</label>
-            <input type="number" id="conn-port" placeholder="22" value="22" class="f-input">
-          </div>
-          <div class="f-field">
-            <label class="f-label" for="conn-user">Username</label>
-            <input type="text" id="conn-user" placeholder="ubuntu" class="f-input">
-          </div>
-        </div>
-
-        <div class="f-field">
-          <label class="f-label" for="conn-keypath">SSH Key Path</label>
-          <input type="text" id="conn-keypath" placeholder="~/.ssh/id_rsa" class="f-input">
-        </div>
-
-        <div class="f-field">
-          <label class="f-label" for="conn-label">Label <span style="color:var(--text-3);font-weight:400">(optional)</span></label>
-          <input type="text" id="conn-label" placeholder="Production" class="f-input">
-        </div>
-
-        <div id="conn-test-status" style="font-size:11px;color:var(--text-2);margin-bottom:6px;min-height:16px"></div>
-
-        <div class="conn-form-btns">
-          <button id="conn-test" type="button" class="btn-test">Test</button>
-          <button id="conn-save" type="button" class="btn-save">Save</button>
-          <button id="conn-cancel" type="button">Cancel</button>
-        </div>
-      </div>
 
       <div class="sidebar-section">
         <button id="add-conn-btn" class="sidebar-btn">
@@ -140,79 +109,224 @@
           Add Connection
         </button>
       </div>
+
+      <!-- kept for JS event-listener compatibility -->
+      <button id="connections-close" style="display:none" aria-hidden="true"></button>
+
+      <!-- kept for JS compatibility — add-connection-form hidden marker -->
+      <div id="add-connection-form" style="display:none" aria-hidden="true"></div>
     </aside>
 
-    <!-- ── Main: Cron Jobs ── -->
+    <!-- ── Main Content ── -->
     <main class="main-content">
-      <div class="section-header">
-        <h2 class="section-title">Cron Jobs</h2>
-      </div>
 
-      <!-- Notification / error banner -->
-      <div id="error-banner" class="alert error hidden">
-        <span id="error-text"></span>
-        <button class="alert-close" onclick="clearError()">×</button>
-      </div>
-
-      <!-- macOS Full Disk Access notice -->
-      <div id="macos-banner" class="alert info hidden">
-        <div style="flex:1">
-          <strong>Scheduled jobs not running?</strong>
-          <p style="margin:3px 0 0;font-size:11px">macOS requires <strong>Full Disk Access</strong> for <code style="font-family:monospace">cron</code>. Open System Settings → Privacy &amp; Security → Full Disk Access, add <code style="font-family:monospace">cron</code>, then restart Hourglass. Use "Run" to test immediately.</p>
+      <!-- Global alerts (visible across all views) -->
+      <div class="global-alerts">
+        <div id="error-banner" class="alert error hidden">
+          <span class="alert-body" id="error-text"></span>
+          <button class="alert-close" onclick="clearError()">×</button>
         </div>
-        <button id="macos-banner-dismiss" class="alert-close">×</button>
-      </div>
-
-      <!-- Jobs table -->
-      <div class="jobs-wrap" id="jobs-container">
-        <div class="jobs-card">
-          <table class="jobs-table">
-            <thead>
-              <tr>
-                <th>Job</th>
-                <th>Last Run</th>
-                <th>Status</th>
-                <th class="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="jobs-table">
-              <tr><td colspan="4" class="empty-cell">Loading…</td></tr>
-            </tbody>
-          </table>
+        <div id="macos-banner" class="alert info hidden">
+          <div class="alert-body">
+            <strong>Scheduled jobs not running?</strong>
+            <p style="margin:3px 0 0;font-size:11px">macOS requires <strong>Full Disk Access</strong> for <code style="font-family:monospace">cron</code>. Open System Settings → Privacy &amp; Security → Full Disk Access, add <code style="font-family:monospace">cron</code>, then restart Hourglass.</p>
+          </div>
+          <button id="macos-banner-dismiss" class="alert-close">×</button>
         </div>
       </div>
+
+      <!-- ── View: Cron Jobs List ── -->
+      <div id="view-jobs" class="content-view">
+        <div class="section-header">
+          <h2 class="section-title">Cron Jobs</h2>
+          <button class="btn-header-action" onclick="switchView('add-job')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            <span>Add New Job</span>
+          </button>
+        </div>
+        <div class="jobs-wrap" id="jobs-container">
+          <div class="jobs-card">
+            <table class="jobs-table">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Last Run</th>
+                  <th>Status</th>
+                  <th class="right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="jobs-table">
+                <tr><td colspan="4" class="empty-cell">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── View: Add / Edit Job ── -->
+      <div id="view-add-job" class="content-view hidden">
+        <div class="section-header">
+          <button class="btn-back" onclick="cancelAndGoBack()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+            Cron Jobs
+          </button>
+          <h2 id="form-title" class="section-title">Add New Job</h2>
+        </div>
+
+        <div class="form-view-scroll">
+          <div class="form-view-inner">
+            <form id="add-job-form">
+
+              <!-- Schedule field + cron popup -->
+              <div class="f-field">
+                <div class="f-label-row">
+                  <label class="f-label" for="schedule-input">Schedule</label>
+                  <button type="button" class="cron-help-btn" id="cron-help-btn" aria-label="Cron syntax reference">?</button>
+                </div>
+
+                <div class="cron-help-wrap">
+                  <input type="text" id="schedule-input" placeholder="0 9 * * *" class="f-input" required autocomplete="off" spellcheck="false">
+
+                  <!-- Cron syntax popup -->
+                  <div id="cron-popup" class="cron-popup hidden" role="tooltip">
+                    <div class="cron-popup-title">Cron Syntax Reference</div>
+
+                    <!-- Field positions -->
+                    <div class="cron-fields">
+                      <div class="cron-field">
+                        <div class="cron-field-name">Min</div>
+                        <div class="cron-field-range">0–59</div>
+                      </div>
+                      <div class="cron-field">
+                        <div class="cron-field-name">Hour</div>
+                        <div class="cron-field-range">0–23</div>
+                      </div>
+                      <div class="cron-field">
+                        <div class="cron-field-name">Day</div>
+                        <div class="cron-field-range">1–31</div>
+                      </div>
+                      <div class="cron-field">
+                        <div class="cron-field-name">Month</div>
+                        <div class="cron-field-range">1–12</div>
+                      </div>
+                      <div class="cron-field">
+                        <div class="cron-field-name">Wkday</div>
+                        <div class="cron-field-range">0–6</div>
+                      </div>
+                    </div>
+
+                    <!-- Special characters -->
+                    <div class="cron-chars">
+                      <span class="cc">*</span><span class="cd">any value</span>
+                      <span class="cc">*/n</span><span class="cd">every n-th</span>
+                      <span class="cc">,</span><span class="cd">list (1,3,5)</span>
+                      <span class="cc">-</span><span class="cd">range (1–5)</span>
+                    </div>
+
+                    <!-- Examples -->
+                    <div class="cron-examples">
+                      <div class="cron-example"><code>* * * * *</code><span>every minute</span></div>
+                      <div class="cron-example"><code>0 * * * *</code><span>top of every hour</span></div>
+                      <div class="cron-example"><code>0 9 * * *</code><span>daily at 9:00 AM</span></div>
+                      <div class="cron-example"><code>0 9 * * 1-5</code><span>weekdays at 9:00 AM</span></div>
+                      <div class="cron-example"><code>0 9 1 * *</code><span>1st of month at 9:00 AM</span></div>
+                      <div class="cron-example"><code>*/15 * * * *</code><span>every 15 minutes</span></div>
+                      <div class="cron-example"><code>0 0 * * 0</code><span>every Sunday at midnight</span></div>
+                    </div>
+
+                    <!-- Live preview -->
+                    <div class="cron-preview-section">
+                      <div class="cron-preview-label">Preview</div>
+                      <div class="cron-preview-text muted" id="cron-preview">Enter a schedule above</div>
+                    </div>
+                  </div>
+                </div>
+                <p class="f-hint">minute · hour · day · month · weekday</p>
+              </div>
+
+              <!-- Command -->
+              <div class="f-field">
+                <label class="f-label" for="command-input">Command</label>
+                <input type="text" id="command-input" placeholder="/usr/bin/backup.sh" class="f-input" required autocomplete="off" spellcheck="false">
+              </div>
+
+              <!-- Comment -->
+              <div class="f-field">
+                <label class="f-label" for="comment-input">
+                  Comment <span style="color:var(--text-3);font-weight:400">(optional)</span>
+                </label>
+                <input type="text" id="comment-input" placeholder="Daily backup" class="f-input" autocomplete="off" spellcheck="false">
+                <p class="f-hint">Shown as the job name in the table</p>
+              </div>
+
+              <div class="form-actions">
+                <button id="submit-btn" type="submit" class="btn-primary">Add Job</button>
+                <button id="cancel-edit-btn" type="button" class="btn-secondary hidden">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── View: Add Connection ── -->
+      <div id="view-add-conn" class="content-view hidden">
+        <div class="section-header">
+          <button class="btn-back" onclick="switchView('jobs')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+            Back
+          </button>
+          <h2 class="section-title">Add SSH Connection</h2>
+        </div>
+
+        <div class="form-view-scroll">
+          <div class="form-view-inner">
+            <div class="f-field">
+              <label class="f-label" for="conn-host">Hostname or IP</label>
+              <input type="text" id="conn-host" placeholder="server.example.com" class="f-input" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="f-grid-2">
+              <div class="f-field">
+                <label class="f-label" for="conn-port">SSH Port</label>
+                <input type="number" id="conn-port" placeholder="22" value="22" class="f-input">
+              </div>
+              <div class="f-field">
+                <label class="f-label" for="conn-user">Username</label>
+                <input type="text" id="conn-user" placeholder="ubuntu" class="f-input" autocomplete="off" spellcheck="false">
+              </div>
+            </div>
+
+            <div class="f-field">
+              <label class="f-label" for="conn-keypath">SSH Key Path</label>
+              <input type="text" id="conn-keypath" placeholder="~/.ssh/id_rsa" class="f-input" autocomplete="off" spellcheck="false">
+              <p class="f-hint">Absolute or home-relative path to your private key</p>
+            </div>
+
+            <div class="f-field">
+              <label class="f-label" for="conn-label">
+                Label <span style="color:var(--text-3);font-weight:400">(optional)</span>
+              </label>
+              <input type="text" id="conn-label" placeholder="Production" class="f-input" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div id="conn-test-status" style="font-size:12px;min-height:18px;margin-bottom:4px"></div>
+
+            <div class="form-actions">
+              <button id="conn-test" type="button" class="btn-test">Test Connection</button>
+              <button id="conn-save" type="button" class="btn-primary">Save</button>
+              <button id="conn-cancel" type="button" class="btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </main>
-
-    <!-- ── Form Panel: Add / Edit Job ── -->
-    <aside class="form-panel">
-      <div class="form-panel-inner">
-        <h3 id="form-title" class="form-panel-title">Add New Job</h3>
-
-        <form id="add-job-form">
-          <div class="f-field">
-            <label class="f-label" for="schedule-input">Schedule</label>
-            <input type="text" id="schedule-input" placeholder="0 9 * * *" class="f-input" required autocomplete="off" spellcheck="false">
-            <p class="f-hint">minute · hour · day · month · weekday</p>
-          </div>
-
-          <div class="f-field">
-            <label class="f-label" for="command-input">Command</label>
-            <input type="text" id="command-input" placeholder="/usr/bin/backup.sh" class="f-input" required autocomplete="off" spellcheck="false">
-          </div>
-
-          <div class="f-field">
-            <label class="f-label" for="comment-input">
-              Comment <span style="color:var(--text-3);font-weight:400">(optional)</span>
-            </label>
-            <input type="text" id="comment-input" placeholder="Daily backup" class="f-input" autocomplete="off" spellcheck="false">
-          </div>
-
-          <button id="submit-btn" type="submit" class="btn-primary">Add Job</button>
-          <button id="cancel-edit-btn" type="button" class="btn-cancel hidden">Cancel</button>
-        </form>
-      </div>
-    </aside>
-
   </div><!-- .app-body -->
 </div><!-- .app-shell -->
 

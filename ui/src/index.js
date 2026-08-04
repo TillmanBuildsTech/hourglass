@@ -3,7 +3,6 @@ let jobs = [];
 let deleteIndex = -1;
 let editIndex = -1;
 let isLocalOnly = false;
-let currentConnection = { host: 'localhost', port: 8080 };
 let activeConnectionId = '';
 
 // ── Theme ──────────────────────────────────────────────────────────────────
@@ -16,8 +15,8 @@ let activeConnectionId = '';
 function syncThemeIcon() {
     const isDark = document.documentElement.dataset.theme === 'dark'
         || (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.getElementById('icon-sun').style.display  = isDark  ? 'none'  : '';
-    document.getElementById('icon-moon').style.display = isDark  ? '' : 'none';
+    document.getElementById('icon-sun').style.display  = isDark ? 'none' : '';
+    document.getElementById('icon-moon').style.display = isDark ? ''     : 'none';
 }
 
 document.getElementById('theme-toggle').addEventListener('click', () => {
@@ -28,6 +27,35 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
     localStorage.setItem('hg-theme', root.dataset.theme);
     syncThemeIcon();
 });
+
+// ── View Switching ─────────────────────────────────────────────────────────
+function switchView(view) {
+    document.querySelectorAll('.content-view').forEach(el => el.classList.add('hidden'));
+    const target = document.getElementById('view-' + view);
+    if (target) target.classList.remove('hidden');
+    closeSidebar(); // close mobile drawer when navigating
+    closeCronPopup();
+}
+
+// ── Mobile Sidebar ─────────────────────────────────────────────────────────
+function openSidebar() {
+    document.getElementById('connections-panel').classList.add('open');
+    document.getElementById('sidebar-backdrop').classList.add('visible');
+    document.body.style.overflow = 'hidden';
+}
+function closeSidebar() {
+    document.getElementById('connections-panel').classList.remove('open');
+    document.getElementById('sidebar-backdrop').classList.remove('visible');
+    document.body.style.overflow = '';
+}
+
+document.getElementById('sidebar-hamburger').addEventListener('click', openSidebar);
+document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
+document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+
+// Legacy compat — keep hidden elements wired so JS doesn't error
+document.getElementById('connections-toggle').addEventListener('click', openSidebar);
+document.getElementById('connections-close').addEventListener('click', closeSidebar);
 
 // ── Notifications ──────────────────────────────────────────────────────────
 function showNotification(msg, type) {
@@ -43,13 +71,150 @@ function showNotification(msg, type) {
 }
 
 function showError(msg) {
-    const isSuccess = msg.startsWith('✓') || msg.startsWith('Connected') || msg.startsWith('Switched');
-    showNotification(msg, isSuccess ? 'success' : 'error');
+    const isOk = msg.startsWith('✓') || msg.startsWith('Connected') || msg.startsWith('Switched');
+    showNotification(msg, isOk ? 'success' : 'error');
 }
 
 function clearError() {
     document.getElementById('error-banner').classList.add('hidden');
 }
+
+// ── Cron Help Popup ────────────────────────────────────────────────────────
+function openCronPopup() {
+    document.getElementById('cron-popup').classList.remove('hidden');
+    document.getElementById('cron-help-btn').classList.add('active');
+    updateCronPreview();
+}
+function closeCronPopup() {
+    document.getElementById('cron-popup').classList.add('hidden');
+    document.getElementById('cron-help-btn').classList.remove('active');
+}
+function toggleCronPopup() {
+    const popup = document.getElementById('cron-popup');
+    popup.classList.contains('hidden') ? openCronPopup() : closeCronPopup();
+}
+
+document.getElementById('cron-help-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleCronPopup();
+});
+
+// Close popup when clicking outside
+document.addEventListener('click', (e) => {
+    const popup  = document.getElementById('cron-popup');
+    const btn    = document.getElementById('cron-help-btn');
+    const input  = document.getElementById('schedule-input');
+    if (!popup.classList.contains('hidden') &&
+        !popup.contains(e.target) && e.target !== btn && e.target !== input) {
+        closeCronPopup();
+    }
+});
+
+// Live cron preview
+function describeCron(expr) {
+    const parts = (expr || '').trim().split(/\s+/);
+    if (parts.length !== 5) return null;
+    const [min, hour, dom, month, dow] = parts;
+    const anyOf = s => s === '*' || s === '?';
+
+    // Full wildcard
+    if (parts.every(anyOf)) return 'Runs every minute';
+
+    // Step patterns on minute
+    if (min.startsWith('*/') && parts.slice(1).every(anyOf)) {
+        const n = parseInt(min.slice(2));
+        return n > 0 ? `Runs every ${n} minute${n > 1 ? 's' : ''}` : null;
+    }
+
+    // Step patterns on hour
+    if (anyOf(min) && hour.startsWith('*/') && anyOf(dom) && anyOf(month) && anyOf(dow)) {
+        const n = parseInt(hour.slice(2));
+        return n > 0 ? `Runs every ${n} hour${n > 1 ? 's' : ''}, on the minute` : null;
+    }
+
+    // Build human description
+    const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    let parts_desc = [];
+
+    // Weekday
+    if (!anyOf(dow)) {
+        if (dow === '1-5') parts_desc.push('weekdays');
+        else if (dow === '0,6' || dow === '6,0' || dow === '0-6') parts_desc.push('weekends');
+        else {
+            const days = dow.split(',').map(d => {
+                if (d.includes('-')) {
+                    const [a, b] = d.split('-');
+                    return `${dowNames[+a]}–${dowNames[+b]}`;
+                }
+                return dowNames[+d] || d;
+            });
+            parts_desc.push(days.join(', '));
+        }
+    }
+
+    // Day of month
+    if (!anyOf(dom)) {
+        const d = parseInt(dom);
+        const sfx = [,'st','nd','rd'][d] || 'th';
+        parts_desc.push(`on the ${d}${sfx}`);
+    }
+
+    // Month
+    if (!anyOf(month)) {
+        const m = monthNames[parseInt(month)];
+        parts_desc.push(`in ${m || month}`);
+    }
+
+    // Time
+    let time = '';
+    if (anyOf(hour) && anyOf(min)) {
+        time = 'every minute';
+    } else if (anyOf(hour)) {
+        if (min.startsWith('*/')) {
+            const n = parseInt(min.slice(2));
+            time = `every ${n} min`;
+        } else {
+            time = `at minute :${min.padStart(2,'0')} of each hour`;
+        }
+    } else if (anyOf(min)) {
+        time = `every minute past ${hour}:00`;
+    } else {
+        const h = parseInt(hour), m = parseInt(min);
+        if (isNaN(h) || isNaN(m)) return null;
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12  = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        time = `at ${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+    }
+
+    const prefix = parts_desc.length ? parts_desc.join(', ') + ' ' : '';
+    return `Runs ${prefix}${time}`;
+}
+
+function updateCronPreview() {
+    const val = document.getElementById('schedule-input').value.trim();
+    const el  = document.getElementById('cron-preview');
+    if (!val) {
+        el.textContent = 'Enter a schedule above';
+        el.className = 'cron-preview-text muted';
+        return;
+    }
+    const desc = describeCron(val);
+    if (desc) {
+        el.textContent = desc;
+        el.className = 'cron-preview-text';
+    } else {
+        el.textContent = 'Invalid or complex expression';
+        el.className = 'cron-preview-text muted';
+    }
+}
+
+document.getElementById('schedule-input').addEventListener('input', () => {
+    if (!document.getElementById('cron-popup').classList.contains('hidden')) {
+        updateCronPreview();
+    }
+});
 
 // ── Connection Management ──────────────────────────────────────────────────
 function initConnections() {
@@ -77,7 +242,7 @@ async function loadConnections() {
 
         const data = await resp.json();
         activeConnectionId = data.active_id || '';
-        const connections = data.connections || [];
+        const connections  = data.connections || [];
 
         if (connections.length > 0) {
             document.getElementById('saved-connections').classList.remove('hidden');
@@ -99,12 +264,14 @@ async function loadConnections() {
                         <div class="conn-name">${label}</div>
                         <div class="conn-detail">${detail}</div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:4px">
+                    <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
                         ${isActive
                             ? '<span class="conn-status-dot"></span>'
-                            : `<button onclick="switchConnection('${escapeHtml(conn.id)}')" class="sidebar-btn" style="padding:3px 6px;font-size:10px;width:auto">Connect</button>`
+                            : `<button onclick="switchConnection('${escapeHtml(conn.id)}')" class="sidebar-btn" style="padding:3px 7px;font-size:10px;width:auto">Connect</button>`
                         }
-                        <button onclick="removeConnection('${escapeHtml(conn.id)}')" title="Remove" style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px;line-height:1;font-size:14px" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text-3)'">×</button>
+                        <button onclick="removeConnection('${escapeHtml(conn.id)}')" title="Remove"
+                            style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px 3px;line-height:1;font-size:15px"
+                            onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text-3)'">×</button>
                     </div>
                 </div>`;
             }).join('');
@@ -119,15 +286,14 @@ async function loadConnections() {
 }
 
 function updateConnectionDisplay(connections) {
-    const active = (connections || []).find((c) => c.id === activeConnectionId);
+    const active = (connections || []).find(c => c.id === activeConnectionId);
     const label  = active ? (active.label || active.host) : 'Local';
     const detail = active ? `${active.user}@${active.host}:${active.port}` : 'localhost';
 
-    document.getElementById('connection-status').textContent  = label;
+    document.getElementById('connection-status').textContent   = label;
     document.getElementById('current-conn-display').textContent = detail;
     document.getElementById('switch-local-btn').classList.toggle('hidden', !active);
 
-    // Mark local card active/inactive
     const localCard = document.getElementById('current-connection');
     localCard.classList.toggle('active', !active);
 }
@@ -139,14 +305,12 @@ async function switchConnection(connId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: connId })
         });
-
         if (!resp.ok) {
             const err = await resp.json();
             showError('Failed to switch connection: ' + err.error);
             return;
         }
-
-        document.getElementById('connections-panel').classList.remove('hidden');
+        closeSidebar();
         await loadConnections();
         await loadJobs();
         showError(connId ? 'Connected to ' + connId : 'Switched to Local');
@@ -162,7 +326,6 @@ async function removeConnection(connId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: connId })
         });
-
         if (!resp.ok) throw new Error('Failed to delete connection');
         await loadConnections();
     } catch (err) {
@@ -182,7 +345,6 @@ async function testConnection() {
         statusEl.style.color = 'var(--red)';
         return;
     }
-
     statusEl.textContent = 'Testing…';
     statusEl.style.color = 'var(--text-2)';
 
@@ -192,14 +354,12 @@ async function testConnection() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host, port, user, key_path: keyPath })
         });
-
         if (!resp.ok) {
             const err = await resp.json();
             statusEl.textContent = '✗ ' + err.error;
             statusEl.style.color = 'var(--red)';
             return;
         }
-
         statusEl.textContent = '✓ Connection successful';
         statusEl.style.color = 'var(--green)';
     } catch (err) {
@@ -213,7 +373,6 @@ async function saveConnection() {
         showError('Cannot add remote connections when running locally');
         return;
     }
-
     const host    = document.getElementById('conn-host').value.trim();
     const port    = parseInt(document.getElementById('conn-port').value) || 22;
     const user    = document.getElementById('conn-user').value.trim();
@@ -224,7 +383,6 @@ async function saveConnection() {
         showError('Hostname, username, and key path are required');
         return;
     }
-
     const id = `${host}-${user}-${Date.now()}`;
 
     try {
@@ -233,47 +391,38 @@ async function saveConnection() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, host, port, user, key_path: keyPath, label })
         });
-
         if (!resp.ok) {
             const err = await resp.json();
             showError('Failed to save connection: ' + err.error);
             return;
         }
-
-        ['conn-host','conn-user','conn-keypath','conn-label'].forEach(id => {
-            document.getElementById(id).value = '';
-        });
-        document.getElementById('conn-port').value = '22';
-        document.getElementById('conn-test-status').textContent = '';
-        document.getElementById('add-connection-form').classList.add('hidden');
-        document.getElementById('add-conn-btn').style.display = '';
-
+        clearConnForm();
+        switchView('jobs');
         await loadConnections();
+        showError('✓ Connection saved');
     } catch (err) {
         showError('Failed to save connection: ' + err.message);
     }
 }
 
+function clearConnForm() {
+    ['conn-host','conn-user','conn-keypath','conn-label'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    document.getElementById('conn-port').value = '22';
+    document.getElementById('conn-test-status').textContent = '';
+}
+
 // Connection UI wiring
-document.getElementById('connections-toggle').addEventListener('click', () => {
-    document.getElementById('connections-panel').classList.toggle('hidden');
-});
-document.getElementById('connections-close').addEventListener('click', () => {
-    document.getElementById('connections-panel').classList.add('hidden');
-});
-document.getElementById('add-conn-btn').addEventListener('click', () => {
-    document.getElementById('add-connection-form').classList.remove('hidden');
-    document.getElementById('add-conn-btn').style.display = 'none';
-});
+document.getElementById('add-conn-btn').addEventListener('click', () => switchView('add-conn'));
 document.getElementById('conn-test').addEventListener('click', testConnection);
 document.getElementById('conn-save').addEventListener('click', saveConnection);
 document.getElementById('conn-cancel').addEventListener('click', () => {
-    document.getElementById('add-connection-form').classList.add('hidden');
-    document.getElementById('add-conn-btn').style.display = '';
-    document.getElementById('conn-test-status').textContent = '';
+    clearConnForm();
+    switchView('jobs');
 });
 
-// ── Jobs Management ────────────────────────────────────────────────────────
+// ── Jobs ───────────────────────────────────────────────────────────────────
 async function loadJobs() {
     try {
         const resp = await fetch('/api/cron');
@@ -286,26 +435,23 @@ async function loadJobs() {
     }
 }
 
-function formatRelativeTime(timestamp) {
-    if (!timestamp) return 'Never';
-    const diff    = Date.now() - timestamp;
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours   = Math.floor(minutes / 60);
-    const days    = Math.floor(hours / 24);
-    if (seconds < 60)  return `${seconds}s ago`;
-    if (minutes < 60)  return `${minutes}m ago`;
-    if (hours   < 24)  return `${hours}h ago`;
-    return `${days}d ago`;
+function formatRelativeTime(ts) {
+    if (!ts) return 'Never';
+    const diff = Date.now() - ts;
+    const s = Math.floor(diff / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const d = Math.floor(h / 24);
+    if (s < 60) return `${s}s ago`;
+    if (m < 60) return `${m}m ago`;
+    if (h < 24) return `${h}h ago`;
+    return `${d}d ago`;
 }
 
 function escapeHtml(str) {
     return String(str == null ? '' : str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 const ICONS = {
@@ -322,19 +468,17 @@ function iconBtn(icon, onclick, title, extraClass) {
 function renderJobs() {
     const tbody = document.getElementById('jobs-table');
     if (jobs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">No cron jobs yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">No cron jobs yet. Click <strong>Add New Job</strong> to get started.</td></tr>';
         return;
     }
-
     tbody.innerHTML = jobs.map((job, idx) => {
-        const lastRun    = formatRelativeTime(job.LastRun);
-        const hasRun     = !!job.LastRun;
-        const isSuccess  = job.LastStatus === 'success';
-        const statusCls  = hasRun ? (isSuccess ? 'ok' : 'fail') : 'none';
-        const statusIcon = hasRun ? (isSuccess ? '✓' : '✗') : '—';
-        const title      = job.Comment || job.Command;
-        const subtitle   = job.Comment ? job.Command : '';
-
+        const lastRun   = formatRelativeTime(job.LastRun);
+        const hasRun    = !!job.LastRun;
+        const isSuccess = job.LastStatus === 'success';
+        const statusCls = hasRun ? (isSuccess ? 'ok' : 'fail') : 'none';
+        const statusIcon= hasRun ? (isSuccess ? '✓' : '✗') : '—';
+        const title     = job.Comment || job.Command;
+        const subtitle  = job.Comment ? job.Command : '';
         return `
         <tr class="job-row${job.Inactive ? ' inactive' : ''}">
             <td class="job-name-cell">
@@ -343,9 +487,7 @@ function renderJobs() {
                 <code class="job-sched">${escapeHtml(job.Schedule)}</code>
             </td>
             <td class="job-lastrun">${lastRun}</td>
-            <td class="job-status">
-                <span class="status-badge ${statusCls}">${statusIcon}</span>
-            </td>
+            <td class="job-status"><span class="status-badge ${statusCls}">${statusIcon}</span></td>
             <td class="job-actions-cell">
                 <div class="action-group">
                     ${!job.Inactive ? iconBtn('run',  `executeJob(${idx})`, 'Run now', 'run') : ''}
@@ -364,18 +506,24 @@ function editJob(idx) {
     document.getElementById('schedule-input').value = job.Schedule;
     document.getElementById('command-input').value  = job.Command;
     document.getElementById('comment-input').value  = job.Comment || '';
-    document.getElementById('form-title').textContent  = 'Update Job';
-    document.getElementById('submit-btn').textContent  = 'Update Job';
+    document.getElementById('form-title').textContent = 'Update Job';
+    document.getElementById('submit-btn').textContent = 'Update Job';
     document.getElementById('cancel-edit-btn').classList.remove('hidden');
+    switchView('add-job');
     document.getElementById('schedule-input').focus();
 }
 
 function cancelEdit() {
     editIndex = -1;
     document.getElementById('add-job-form').reset();
-    document.getElementById('form-title').textContent  = 'Add New Job';
-    document.getElementById('submit-btn').textContent  = 'Add Job';
+    document.getElementById('form-title').textContent = 'Add New Job';
+    document.getElementById('submit-btn').textContent = 'Add Job';
     document.getElementById('cancel-edit-btn').classList.add('hidden');
+}
+
+function cancelAndGoBack() {
+    cancelEdit();
+    switchView('jobs');
 }
 
 function deleteJob(idx) {
@@ -390,13 +538,11 @@ async function executeJob(idx) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index: idx })
         });
-
         if (!resp.ok) {
             const err = await resp.json();
             showError('Failed to execute job: ' + err.error);
             return;
         }
-
         const data = await resp.json();
         showError(`✓ Job executed: ${data.output ? data.output.substring(0, 100) : 'completed'}`);
         setTimeout(loadJobs, 2000);
@@ -412,13 +558,11 @@ async function toggleJob(idx) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index: idx })
         });
-
         if (!resp.ok) {
             const err = await resp.json();
             showError('Failed to toggle job: ' + err.error);
             return;
         }
-
         await loadJobs();
     } catch (err) {
         showError('Failed to toggle job: ' + err.message);
@@ -427,7 +571,7 @@ async function toggleJob(idx) {
 
 document.getElementById('cancel-edit-btn').addEventListener('click', (e) => {
     e.preventDefault();
-    cancelEdit();
+    cancelAndGoBack();
 });
 
 document.getElementById('delete-cancel').addEventListener('click', () => {
@@ -443,7 +587,6 @@ document.getElementById('delete-confirm').addEventListener('click', async () => 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index: deleteIndex })
         });
-
         if (!resp.ok) throw new Error('Failed to delete job');
         deleteIndex = -1;
         document.getElementById('delete-modal').classList.add('hidden');
@@ -455,7 +598,6 @@ document.getElementById('delete-confirm').addEventListener('click', async () => 
 
 document.getElementById('add-job-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-
     const schedule = document.getElementById('schedule-input').value;
     const command  = document.getElementById('command-input').value;
     const comment  = document.getElementById('comment-input').value;
@@ -482,9 +624,8 @@ document.getElementById('add-job-form').addEventListener('submit', async (e) => 
                 throw new Error(err.error || 'Failed to add job');
             }
         }
-
-        document.getElementById('add-job-form').reset();
         cancelEdit();
+        switchView('jobs');
         await loadJobs();
     } catch (err) {
         showError('Failed to save job: ' + err.message);
@@ -498,7 +639,6 @@ async function initVersion() {
         if (!resp.ok) return;
         const data = await resp.json();
         document.getElementById('app-version').textContent = data.version ? `v${data.version}` : '';
-
         if (data.goos === 'darwin' && !sessionStorage.getItem('hourglass-macos-banner-dismissed')) {
             document.getElementById('macos-banner').classList.remove('hidden');
         }
