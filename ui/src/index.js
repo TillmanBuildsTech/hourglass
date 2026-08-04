@@ -486,11 +486,12 @@ function renderJobs() {
         const statusIcon= hasRun ? (isSuccess ? '✓' : '✗') : '—';
         const title     = job.Comment || job.Command;
         const subtitle  = job.Comment ? job.Command : '';
-        const disabledBadge = job.Inactive ? '<span class="disabled-tag">⏸ Disabled</span>' : '';
+        const disabledBadge = job.Inactive ? '<div class="disabled-tag">⏸ Disabled</div>' : '';
         return `
         <tr class="job-row${job.Inactive ? ' inactive' : ''}">
             <td class="job-name-cell">
-                <div class="job-title" title="${escapeHtml(title)}">${escapeHtml(title)}${disabledBadge}</div>
+                <div class="job-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                ${disabledBadge}
                 ${subtitle ? `<div class="job-sub" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</div>` : ''}
                 <code class="job-sched">${escapeHtml(job.Schedule)}</code>
             </td>
