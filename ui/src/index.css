@@ -291,18 +291,17 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--text);
-  /* word-wrap fix — break long hostnames */
-  overflow-wrap: anywhere;
-  word-break: break-all;
-  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .conn-card.active .conn-name { color: var(--gold); }
 .conn-detail {
   font-size: 10px;
   color: var(--text-3);
-  overflow-wrap: anywhere;
-  word-break: break-all;
-  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .conn-status-dot {
