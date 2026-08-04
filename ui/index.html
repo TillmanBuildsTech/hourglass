@@ -6,156 +6,228 @@
     <title>Hourglass — Crontab Manager</title>
     <link rel="stylesheet" href="dist/index.css">
 </head>
-<body class="bg-gray-50">
-    <div class="max-w-6xl mx-auto py-8 px-4">
-        <div class="flex justify-between items-start mb-8">
-            <div>
-                <h1 class="text-4xl font-bold text-gray-900 mb-2">Hourglass <span id="app-version" class="text-sm font-normal text-gray-400 align-middle"></span></h1>
-                <p class="text-gray-600">Self-hosted crontab manager</p>
-            </div>
-            <div class="text-right">
-                <p class="text-sm text-gray-600">Connected to:</p>
-                <p id="connection-status" class="text-sm font-mono text-blue-600">localhost:8080</p>
-                <button id="connections-toggle" class="text-xs text-blue-600 hover:text-blue-900 mt-1">Manage Connections</button>
-            </div>
-        </div>
+<body>
+<div class="app-shell">
 
-        <div id="error-banner" class="hidden mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded"></div>
-
-        <div id="macos-banner" class="hidden mb-4 p-4 bg-amber-50 border border-amber-300 text-amber-800 rounded text-sm flex justify-between items-start gap-4">
-            <div>
-                <p class="font-semibold">Scheduled jobs not running?</p>
-                <p class="mt-1">macOS requires <span class="font-medium">Full Disk Access</span> for <code class="bg-amber-100 px-1 rounded">cron</code> to actually execute jobs — otherwise it silently does nothing. Open System Settings → Privacy &amp; Security → Full Disk Access and add <code class="bg-amber-100 px-1 rounded">cron</code> (or your terminal app), then restart Hourglass. Use "Run" on a job to test execution immediately without waiting on the schedule.</p>
-            </div>
-            <button id="macos-banner-dismiss" class="text-amber-600 hover:text-amber-900 shrink-0" title="Dismiss">✕</button>
-        </div>
-
-        <div id="connections-panel" class="hidden mb-8 bg-white rounded-lg shadow p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-semibold text-gray-900">Connection Manager</h2>
-                <button id="connections-close" class="text-gray-600 hover:text-gray-900">✕</button>
-            </div>
-
-            <div id="local-only-message" class="hidden mb-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded">
-                This instance is running locally and cannot connect to remote servers. For remote access, use SSH tunneling: <code class="bg-blue-100 px-1 rounded">ssh -L 8080:localhost:8080 user@server</code>
-            </div>
-
-            <div id="connections-list" class="space-y-3 mb-6">
-                <div id="current-connection" class="p-4 bg-blue-50 border border-blue-200 rounded">
-                    <p class="text-sm font-semibold text-blue-900">Current Connection</p>
-                    <p id="current-conn-display" class="text-sm text-blue-700 font-mono mt-1">localhost:8080 (local)</p>
-                    <button id="switch-local-btn" onclick="switchConnection('')" class="hidden mt-2 text-xs text-blue-600 hover:text-blue-900 underline">Switch to Local</button>
-                </div>
-            </div>
-
-            <div id="saved-connections" class="hidden">
-                <h3 class="text-sm font-semibold text-gray-700 mb-3">Saved Connections</h3>
-                <div id="connections-items" class="space-y-2 mb-4"></div>
-            </div>
-
-            <div id="add-connection-form" class="hidden bg-gray-50 p-4 rounded border border-gray-200">
-                <h3 class="text-sm font-semibold text-gray-700 mb-3">Add SSH Connection</h3>
-                <div class="space-y-3">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Hostname or IP</label>
-                        <input type="text" id="conn-host" placeholder="server.example.com" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">SSH Port</label>
-                            <input type="number" id="conn-port" placeholder="22" value="22" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Username</label>
-                            <input type="text" id="conn-user" placeholder="ubuntu" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">SSH Key Path</label>
-                        <input type="text" id="conn-keypath" placeholder="~/.ssh/id_rsa" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
-                        <p class="text-xs text-gray-500 mt-1">e.g., ~/.ssh/id_rsa or /home/user/.ssh/id_rsa</p>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Label (optional)</label>
-                        <input type="text" id="conn-label" placeholder="Production Server" class="w-full px-3 py-2 border border-gray-300 rounded text-sm">
-                    </div>
-                    <div id="conn-test-status" class="text-xs text-gray-600"></div>
-                    <div class="flex gap-2">
-                        <button id="conn-test" type="button" class="flex-1 px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700">Test Connection</button>
-                        <button id="conn-save" type="button" class="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Save</button>
-                        <button id="conn-cancel" type="button" class="flex-1 px-3 py-2 bg-gray-300 text-gray-900 text-sm rounded hover:bg-gray-400">Cancel</button>
-                    </div>
-                </div>
-            </div>
-
-            <button id="add-conn-btn" class="text-sm text-blue-600 hover:text-blue-900">+ Add Connection</button>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="lg:col-span-2">
-                <div class="bg-white rounded-lg shadow">
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h2 class="text-xl font-semibold text-gray-900">Cron Jobs</h2>
-                    </div>
-                    <div id="jobs-container" class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead class="bg-gray-50 border-b border-gray-200">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Schedule</th>
-                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Command</th>
-                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Last Run</th>
-                                    <th class="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
-                                    <th class="px-6 py-3 text-center text-sm font-semibold text-gray-900">State</th>
-                                    <th class="px-6 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="jobs-table" class="divide-y divide-gray-200">
-                                <tr class="text-center py-8">
-                                    <td colspan="6" class="px-6 py-12 text-gray-500">Loading...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="lg:col-span-1">
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 id="form-title" class="text-lg font-semibold text-gray-900 mb-4">Add New Job</h3>
-                    <form id="add-job-form" class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Schedule (cron format)</label>
-                            <input type="text" id="schedule-input" placeholder="0 9 * * *" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required>
-                            <p class="text-xs text-gray-500 mt-1">minute hour day month weekday</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Command</label>
-                            <input type="text" id="command-input" placeholder="/usr/bin/backup.sh" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Comment (optional)</label>
-                            <input type="text" id="comment-input" placeholder="Daily backup" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                        </div>
-                        <div class="flex gap-2">
-                            <button id="submit-btn" type="submit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Add Job</button>
-                            <button id="cancel-edit-btn" type="button" class="hidden flex-1 bg-gray-300 text-gray-900 py-2 rounded-lg font-medium hover:bg-gray-400">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
+  <!-- ── Header ── -->
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 2h14M5 22h14"/>
+        <path d="M7 2c0 6 5 8 5 10s-5 4-5 10"/>
+        <path d="M17 2c0 6-5 8-5 10s5 4 5 10"/>
+      </svg>
+      <span class="brand-name">Hourglass</span>
+      <span id="app-version" class="brand-version"></span>
     </div>
 
-    <div id="delete-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-lg p-6 max-w-sm">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete Job?</h3>
-            <p class="text-gray-600 mb-6">This action cannot be undone.</p>
-            <div class="flex gap-2">
-                <button id="delete-cancel" class="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300">Cancel</button>
-                <button id="delete-confirm" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Delete</button>
-            </div>
-        </div>
+    <div class="header-right">
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
+        <svg id="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg id="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+
+      <div class="conn-pill">
+        <span class="status-dot"></span>
+        <span>Connected:&nbsp;</span>
+        <span class="conn-pill-label" id="connection-status">Local</span>
+      </div>
     </div>
+
+    <!-- kept for JS event-listener compatibility -->
+    <button id="connections-toggle" style="display:none" aria-hidden="true"></button>
+  </header>
+
+  <!-- ── Body ── -->
+  <div class="app-body">
+
+    <!-- ── Sidebar: Connection Manager ── -->
+    <aside class="sidebar" id="connections-panel">
+      <!-- kept for JS compatibility -->
+      <button id="connections-close" style="display:none" aria-hidden="true"></button>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">Connection Manager</div>
+
+        <!-- Current / local connection -->
+        <div id="connections-list">
+          <div id="current-connection" class="conn-card active">
+            <div class="conn-icon">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M8 21h8M12 17v4"/>
+              </svg>
+            </div>
+            <div class="conn-info">
+              <div class="conn-name" id="current-conn-display">Local</div>
+              <div class="conn-detail">localhost</div>
+            </div>
+            <span class="conn-status-dot"></span>
+          </div>
+        </div>
+
+        <!-- Saved remote connections -->
+        <div id="saved-connections" class="hidden">
+          <div id="connections-items"></div>
+        </div>
+
+        <!-- Switch to local (shown when a remote is active) -->
+        <button id="switch-local-btn" class="sidebar-btn muted hidden" onclick="switchConnection('')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+          Switch to Local
+        </button>
+      </div>
+
+      <!-- Local-only info note -->
+      <div id="local-only-message" class="info-note hidden">
+        Running locally — cannot add remote connections.<br>
+        Use SSH tunneling to access remote servers:<br>
+        <code>ssh -L 8080:localhost:8080 user@server</code>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Add connection form (embedded in sidebar) -->
+      <div id="add-connection-form" class="conn-form hidden">
+        <div class="conn-form-title">Add SSH Connection</div>
+
+        <div class="f-field">
+          <label class="f-label" for="conn-host">Hostname or IP</label>
+          <input type="text" id="conn-host" placeholder="server.example.com" class="f-input">
+        </div>
+
+        <div class="conn-form-grid">
+          <div class="f-field">
+            <label class="f-label" for="conn-port">SSH Port</label>
+            <input type="number" id="conn-port" placeholder="22" value="22" class="f-input">
+          </div>
+          <div class="f-field">
+            <label class="f-label" for="conn-user">Username</label>
+            <input type="text" id="conn-user" placeholder="ubuntu" class="f-input">
+          </div>
+        </div>
+
+        <div class="f-field">
+          <label class="f-label" for="conn-keypath">SSH Key Path</label>
+          <input type="text" id="conn-keypath" placeholder="~/.ssh/id_rsa" class="f-input">
+        </div>
+
+        <div class="f-field">
+          <label class="f-label" for="conn-label">Label <span style="color:var(--text-3);font-weight:400">(optional)</span></label>
+          <input type="text" id="conn-label" placeholder="Production" class="f-input">
+        </div>
+
+        <div id="conn-test-status" style="font-size:11px;color:var(--text-2);margin-bottom:6px;min-height:16px"></div>
+
+        <div class="conn-form-btns">
+          <button id="conn-test" type="button" class="btn-test">Test</button>
+          <button id="conn-save" type="button" class="btn-save">Save</button>
+          <button id="conn-cancel" type="button">Cancel</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <button id="add-conn-btn" class="sidebar-btn">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Add Connection
+        </button>
+      </div>
+    </aside>
+
+    <!-- ── Main: Cron Jobs ── -->
+    <main class="main-content">
+      <div class="section-header">
+        <h2 class="section-title">Cron Jobs</h2>
+      </div>
+
+      <!-- Notification / error banner -->
+      <div id="error-banner" class="alert error hidden">
+        <span id="error-text"></span>
+        <button class="alert-close" onclick="clearError()">×</button>
+      </div>
+
+      <!-- macOS Full Disk Access notice -->
+      <div id="macos-banner" class="alert info hidden">
+        <div style="flex:1">
+          <strong>Scheduled jobs not running?</strong>
+          <p style="margin:3px 0 0;font-size:11px">macOS requires <strong>Full Disk Access</strong> for <code style="font-family:monospace">cron</code>. Open System Settings → Privacy &amp; Security → Full Disk Access, add <code style="font-family:monospace">cron</code>, then restart Hourglass. Use "Run" to test immediately.</p>
+        </div>
+        <button id="macos-banner-dismiss" class="alert-close">×</button>
+      </div>
+
+      <!-- Jobs table -->
+      <div class="jobs-wrap" id="jobs-container">
+        <div class="jobs-card">
+          <table class="jobs-table">
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Last Run</th>
+                <th>Status</th>
+                <th class="right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="jobs-table">
+              <tr><td colspan="4" class="empty-cell">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <!-- ── Form Panel: Add / Edit Job ── -->
+    <aside class="form-panel">
+      <div class="form-panel-inner">
+        <h3 id="form-title" class="form-panel-title">Add New Job</h3>
+
+        <form id="add-job-form">
+          <div class="f-field">
+            <label class="f-label" for="schedule-input">Schedule</label>
+            <input type="text" id="schedule-input" placeholder="0 9 * * *" class="f-input" required autocomplete="off" spellcheck="false">
+            <p class="f-hint">minute · hour · day · month · weekday</p>
+          </div>
+
+          <div class="f-field">
+            <label class="f-label" for="command-input">Command</label>
+            <input type="text" id="command-input" placeholder="/usr/bin/backup.sh" class="f-input" required autocomplete="off" spellcheck="false">
+          </div>
+
+          <div class="f-field">
+            <label class="f-label" for="comment-input">
+              Comment <span style="color:var(--text-3);font-weight:400">(optional)</span>
+            </label>
+            <input type="text" id="comment-input" placeholder="Daily backup" class="f-input" autocomplete="off" spellcheck="false">
+          </div>
+
+          <button id="submit-btn" type="submit" class="btn-primary">Add Job</button>
+          <button id="cancel-edit-btn" type="button" class="btn-cancel hidden">Cancel</button>
+        </form>
+      </div>
+    </aside>
+
+  </div><!-- .app-body -->
+</div><!-- .app-shell -->
+
+<!-- Delete Confirmation Modal -->
+<div id="delete-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 class="modal-title">Delete Job?</h3>
+    <p class="modal-body">This action cannot be undone.</p>
+    <div class="modal-actions">
+      <button id="delete-cancel" class="btn-ghost">Cancel</button>
+      <button id="delete-confirm" class="btn-danger">Delete</button>
+    </div>
+  </div>
+</div>
+
 <script type="text/javascript" src="dist/index.min.js"></script>
 </body>
 </html>
