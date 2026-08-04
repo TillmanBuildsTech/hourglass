@@ -486,7 +486,7 @@ function renderJobs() {
         const statusIcon= hasRun ? (isSuccess ? '✓' : '✗') : '—';
         const title     = job.Comment || job.Command;
         const subtitle  = job.Comment ? job.Command : '';
-        const disabledBadge = job.Inactive ? ' <span class="disabled-tag">Disabled</span>' : '';
+        const disabledBadge = job.Inactive ? '<span class="disabled-tag">⏸ Disabled</span>' : '';
         return `
         <tr class="job-row${job.Inactive ? ' inactive' : ''}">
             <td class="job-name-cell">
@@ -553,7 +553,7 @@ async function executeJob(idx) {
         }
         const data = await resp.json();
         showError(`✓ Job executed: ${data.output ? data.output.substring(0, 100) : 'completed'}`);
-        setTimeout(loadJobs, 2000);
+        await loadJobs();
     } catch (err) {
         showError('Failed to execute job: ' + err.message);
     }

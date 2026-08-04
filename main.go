@@ -480,6 +480,11 @@ func handleExecuteCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refresh history immediately so the next GET /api/cron picks
+	// up the new execution result without waiting for the background
+	// 30-second ticker.
+	cronManager.RefreshHistory()
+
 	w.Write([]byte(toJSON(map[string]string{"status": "ok", "output": output})))
 }
 
