@@ -76,6 +76,30 @@ func main() {
 	cronManager = cron.NewManager()
 	cronManager.StartHistoryRefresh()
 
+	// Restore whichever connection was active when Hourglass last exited -
+	// cron.NewManager() defaults to a LocalExecutor, so without this the
+	// UI would show the saved remote connection as "current" (it reads
+	// that straight from connections.json) while every /api/cron request
+	// silently served the local machine's crontab instead.
+	//
+	// Unlike switchToRemoteConnection (used by the interactive "Connect"
+	// button), the executor is adopted unconditionally here rather than
+	// only after a successful reachability check: at boot the network may
+	// not be up yet, and if it isn't, subsequent SSH calls should fail
+	// loudly through the normal error path rather than silently keeping
+	// the local executor while the UI claims to be on the remote host.
+	if cfg := connManager.GetActive(); cfg != nil && !cfg.IsLocal {
+		client, err := sshclient.NewClient(cfg.Host, cfg.Port, cfg.User, cfg.KeyPath)
+		if err != nil {
+			log.Printf("failed to restore saved connection %q: %v", cfg.ID, err)
+		} else {
+			cronManager.SetExecutor(client)
+			if err := client.Connect(); err != nil {
+				log.Printf("saved connection %q is not currently reachable: %v", cfg.ID, err)
+			}
+		}
+	}
+
 	if *mcpMode {
 		if err := mcp.NewServer(cronManager, version()).Serve(os.Stdin, os.Stdout); err != nil {
 			log.Fatalf("MCP server failed: %v", err)
