@@ -74,7 +74,10 @@
               <div class="conn-name" id="current-conn-display">Local</div>
               <div class="conn-detail" id="current-conn-detail">localhost</div>
             </div>
-            <span class="conn-status-dot"></span>
+            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+              <span class="conn-status-dot" id="local-conn-dot"></span>
+              <button id="local-connect-btn" class="sidebar-btn hidden" style="padding:3px 7px;font-size:10px;width:auto" onclick="switchConnection('')">Connect</button>
+            </div>
           </div>
         </div>
 
@@ -82,14 +85,6 @@
         <div id="saved-connections" class="hidden">
           <div id="connections-items"></div>
         </div>
-
-        <!-- Switch to local (shown when a remote is active) -->
-        <button id="switch-local-btn" class="sidebar-btn muted hidden" onclick="switchConnection('')">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 18l-6-6 6-6"/>
-          </svg>
-          Switch to Local
-        </button>
       </div>
 
       <!-- Local-only info note -->

@@ -298,7 +298,8 @@ function updateConnectionDisplay(connections) {
     // in the saved list below.
     document.getElementById('current-conn-display').textContent = 'Local';
     document.getElementById('current-conn-detail').textContent  = 'localhost';
-    document.getElementById('switch-local-btn').classList.toggle('hidden', !active);
+    document.getElementById('local-conn-dot').classList.toggle('hidden', !!active);
+    document.getElementById('local-connect-btn').classList.toggle('hidden', !active);
 
     const localCard = document.getElementById('current-connection');
     localCard.classList.toggle('active', !active);
@@ -485,10 +486,11 @@ function renderJobs() {
         const statusIcon= hasRun ? (isSuccess ? '✓' : '✗') : '—';
         const title     = job.Comment || job.Command;
         const subtitle  = job.Comment ? job.Command : '';
+        const disabledBadge = job.Inactive ? ' <span class="disabled-tag">Disabled</span>' : '';
         return `
         <tr class="job-row${job.Inactive ? ' inactive' : ''}">
             <td class="job-name-cell">
-                <div class="job-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                <div class="job-title" title="${escapeHtml(title)}">${escapeHtml(title)}${disabledBadge}</div>
                 ${subtitle ? `<div class="job-sub" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</div>` : ''}
                 <code class="job-sched">${escapeHtml(job.Schedule)}</code>
             </td>
