@@ -4,12 +4,12 @@ let deleteIndex = -1;
 let editIndex = -1;
 let isLocalOnly = false;
 let currentConnection = { host: 'localhost', port: 8080 };
+let activeConnectionId = '';
 
 // Connection Management
 function initConnections() {
     detectLocalBinding();
     loadConnections();
-    updateConnectionDisplay();
 }
 
 function detectLocalBinding() {
@@ -31,31 +31,45 @@ async function loadConnections() {
         if (!resp.ok) return;
 
         const data = await resp.json();
-        if (data.connections && data.connections.length > 0) {
+        activeConnectionId = data.active_id || '';
+        const connections = data.connections || [];
+
+        if (connections.length > 0) {
             document.getElementById('saved-connections').classList.remove('hidden');
             const items = document.getElementById('connections-items');
-            items.innerHTML = data.connections.map((conn) => `
-                <div class="p-3 bg-white border border-gray-200 rounded flex justify-between items-center">
+            items.innerHTML = connections.map((conn) => {
+                const isActive = conn.id === activeConnectionId;
+                return `
+                <div class="p-3 bg-white border ${isActive ? 'border-blue-400' : 'border-gray-200'} rounded flex justify-between items-center">
                     <div>
-                        <p class="text-sm font-medium text-gray-900">${escapeHtml(conn.label || conn.host)}</p>
+                        <p class="text-sm font-medium text-gray-900">${escapeHtml(conn.label || conn.host)}${isActive ? ' <span class="text-xs text-blue-600">(current)</span>' : ''}</p>
                         <p class="text-xs text-gray-600">${escapeHtml(conn.user)}@${escapeHtml(conn.host)}:${escapeHtml(conn.port)}</p>
                     </div>
                     <div class="flex gap-2">
-                        <button onclick="switchConnection('${escapeHtml(conn.id)}')" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>
+                        ${isActive ? '' : `<button onclick="switchConnection('${escapeHtml(conn.id)}')" class="text-xs text-blue-600 hover:text-blue-900">Connect</button>`}
                         <button onclick="removeConnection('${escapeHtml(conn.id)}')" class="text-xs text-red-600 hover:text-red-900">Remove</button>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
+        } else {
+            document.getElementById('saved-connections').classList.add('hidden');
         }
+
+        updateConnectionDisplay(connections);
     } catch (err) {
         console.error('Failed to load connections:', err);
     }
 }
 
-function updateConnectionDisplay() {
-    const display = isLocalOnly ? 'Local' : 'Local';
-    document.getElementById('connection-status').textContent = display;
-    document.getElementById('current-conn-display').textContent = `${display} (local)`;
+function updateConnectionDisplay(connections) {
+    const active = (connections || []).find((c) => c.id === activeConnectionId);
+    const label = active ? (active.label || active.host) : 'Local';
+    const detail = active ? `${active.user}@${active.host}:${active.port}` : 'localhost:8080 (local)';
+
+    document.getElementById('connection-status').textContent = label;
+    document.getElementById('current-conn-display').textContent = detail;
+    document.getElementById('switch-local-btn').classList.toggle('hidden', !active);
 }
 
 async function switchConnection(connId) {
@@ -73,8 +87,9 @@ async function switchConnection(connId) {
         }
 
         document.getElementById('connections-panel').classList.add('hidden');
+        await loadConnections();
         await loadJobs();
-        showError('Connected to ' + connId);
+        showError(connId ? 'Connected to ' + connId : 'Switched to Local');
     } catch (err) {
         showError('Failed to switch connection: ' + err.message);
     }
