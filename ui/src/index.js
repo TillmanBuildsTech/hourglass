@@ -288,10 +288,16 @@ async function loadConnections() {
 function updateConnectionDisplay(connections) {
     const active = (connections || []).find(c => c.id === activeConnectionId);
     const label  = active ? (active.label || active.host) : 'Local';
-    const detail = active ? `${active.user}@${active.host}:${active.port}` : 'localhost';
 
-    document.getElementById('connection-status').textContent   = label;
-    document.getElementById('current-conn-display').textContent = detail;
+    // Header pill shows what we're currently connected to.
+    document.getElementById('connection-status').textContent = label;
+
+    // The "Current Connection" card is the fixed local connection card —
+    // its name and detail stay as configured and must not be overwritten
+    // by the active remote connection. Remote cards keep their own labels
+    // in the saved list below.
+    document.getElementById('current-conn-display').textContent = 'Local';
+    document.getElementById('current-conn-detail').textContent  = 'localhost';
     document.getElementById('switch-local-btn').classList.toggle('hidden', !active);
 
     const localCard = document.getElementById('current-connection');
