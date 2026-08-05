@@ -252,3 +252,11 @@ func (m *Manager) deleteCrontab() error {
 func (m *Manager) ExecuteCommand(command string) (string, error) {
 	return m.executor.Execute(command)
 }
+
+// RefreshHistory forces the history cache to re-read execution logs
+// through the current executor. Call this after executing a job to make
+// the new execution visible in the UI without waiting for the 30-second
+// background ticker.
+func (m *Manager) RefreshHistory() {
+	_ = m.cache.Refresh(m.executor)
+}
