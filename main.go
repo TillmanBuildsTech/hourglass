@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -118,6 +119,7 @@ func main() {
 	http.HandleFunc("/api/connections", handleConnections)
 	http.HandleFunc("/api/connections/active", handleConnectionActive)
 	http.HandleFunc("/api/connections/test", handleConnectionTest)
+	http.HandleFunc("/api/logs", handleLogs)
 
 	addr := os.Getenv("HOURGLASS_BIND")
 	if addr == "" {
@@ -538,4 +540,32 @@ func switchToRemoteConnection(cfg *connection.Config) error {
 
 	cronManager.SetExecutor(client)
 	return nil
+}
+
+func handleLogs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, toJSON(APIError{"Failed to resolve home directory"}), http.StatusInternalServerError)
+		return
+	}
+
+	logPath := filepath.Join(home, ".hourglass", "history.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Write([]byte(toJSON(map[string]string{"content": "", "path": logPath})))
+			return
+		}
+		http.Error(w, toJSON(APIError{"Failed to read log file: " + err.Error()}), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(toJSON(map[string]string{"content": string(content), "path": logPath})))
 }
