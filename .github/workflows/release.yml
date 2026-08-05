@@ -79,6 +79,22 @@ jobs:
               system "go", "build", *std_go_args(ldflags: "-s -w"), "."
             end
 
+            # brew services start hourglass — runs as a launchd agent.
+            # Defaults to a loopback bind (safe, no credentials needed).
+            # To expose on your LAN at http://hourglass.local:8080, edit
+            # ~/Library/LaunchAgents/homebrew.mxcl.hourglass.plist to set
+            # HOURGLASS_BIND=0.0.0.0:8080 plus HOURGLASS_AUTH_USER and
+            # HOURGLASS_AUTH_PASS, then `brew services restart hourglass`.
+            # (Hourglass refuses to serve on non-loopback binds without
+            # credentials — see bind_security.go.)
+            service do
+              run [opt_bin/"hourglass"]
+              keep_alive true
+              log_path var/"log/hourglass.log"
+              error_log_path var/"log/hourglass.log"
+              environment_variables HOURGLASS_BIND: "127.0.0.1:8080"
+            end
+
             test do
               assert_match "hourglass v#{version}", shell_output("#{bin}/hourglass --version")
             end

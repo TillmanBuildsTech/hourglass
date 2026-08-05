@@ -126,8 +126,14 @@ func main() {
 		addr = "127.0.0.1:8080"
 	}
 
+	if err := enforceBindSecurity(addr); err != nil {
+		log.Fatalf("Refusing to start: %v", err)
+	}
+
+	startMDNS(addr)
+
 	log.Printf("Starting Hourglass v%s on %s", version(), addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := http.ListenAndServe(addr, maybeAuth(http.DefaultServeMux)); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
