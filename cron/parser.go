@@ -2,6 +2,7 @@ package cron
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -33,6 +34,11 @@ func ParseCrontab(text string) ([]Entry, error) {
 			}
 		}
 
+		// Skip crontab environment variable assignments (NAME=value).
+		if envLine.MatchString(line) {
+			continue
+		}
+
 		entry, err := parseLine(line)
 		if err != nil {
 			return nil, fmt.Errorf("parse error: %w", err)
@@ -47,8 +53,23 @@ func ParseCrontab(text string) ([]Entry, error) {
 
 func isValidCronLine(line string) bool {
 	parts := strings.Fields(line)
-	return len(parts) >= 6
+	if len(parts) < 6 {
+		return false
+	}
+	// First field must look like a cron minute — a Wildcard, step pattern,
+	// number, or comma/range list. The raw parser handles full validation;
+	// this guard just prevents non-cron free-text lines from being consumed.
+	return isCronField(parts[0])
 }
+
+func isCronField(s string) bool {
+	return s == "*" || regexCronField.MatchString(s)
+}
+
+var regexCronField = regexp.MustCompile(`^[\d\-\*\/,]+$`)
+
+var envLine = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\s*=`)
+
 
 func parseLine(line string) (*Entry, error) {
 	if strings.HasPrefix(line, "#") {
