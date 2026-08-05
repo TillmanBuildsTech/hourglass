@@ -134,7 +134,16 @@ body {
   align-items: center;
   gap: 9px;
   flex: 1;
+  cursor: pointer;
+  border-radius: var(--radius);
+  padding: 2px 4px;
+  margin-left: -4px;
+  outline: none;
+  transition: background .1s;
 }
+.brand:hover { background: var(--surface-alt); }
+.brand:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.brand:hover .brand-icon { filter: brightness(1.2); }
 .brand-icon { color: var(--gold); flex-shrink: 0; }
 .brand-name {
   font-size: 13px;

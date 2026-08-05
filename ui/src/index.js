@@ -665,4 +665,58 @@ document.getElementById('macos-banner-dismiss').addEventListener('click', () => 
 initVersion();
 initConnections();
 loadJobs();
-setInterval(loadJobs, 30000);
+
+// ── Home / brand navigation ────────────────────────────────────────────────
+// goHome(): back to the cron jobs list for the current connection. Used by
+// the header brand (hourglass logo + name) and the View Logs back button.
+function goHome() {
+    switchView('jobs');
+    loadJobs();
+    closeSidebar();
+}
+
+// Wire the header brand (hourglass logo + "Hourglass" text) to go home.
+const brandHome = document.getElementById('brand-home');
+if (brandHome) {
+    brandHome.addEventListener('click', goHome);
+    brandHome.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            goHome();
+        }
+    });
+}
+
+// Wire logs button
+document.getElementById('nav-logs').addEventListener('click', () => switchView('logs'));
+
+// Polling: jobs every 30s, logs every 5s when active
+let _lastView = 'jobs';
+setInterval(() => {
+    const v = document.getElementById('view-jobs').classList.contains('hidden') ? 'other' : 'jobs';
+    if (v === 'jobs') loadJobs();
+    if (!document.getElementById('view-logs').classList.contains('hidden')) loadLogs();
+}, 5000);
+
+// ── Log Viewer ─────────────────────────────────────────────────────────────
+async function loadLogs() {
+    try {
+        const resp = await fetch('/api/logs');
+        if (!resp.ok) throw new Error('Failed to fetch logs');
+        const data = await resp.json();
+
+        document.getElementById('log-path').textContent = data.path || '';
+
+        const el = document.getElementById('log-content');
+        const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+
+        el.textContent = data.content || 'No log entries yet.';
+
+        if (document.getElementById('log-autoscroll').checked && wasAtBottom) {
+            el.scrollTop = el.scrollHeight;
+        }
+    } catch (err) {
+        console.error('Failed to load logs:', err);
+        document.getElementById('log-content').textContent = 'Failed to load logs: ' + err.message;
+    }
+}
