@@ -118,6 +118,21 @@ Credentials are saved in `/etc/hourglass.env` (chmod 600) — edit and
 `sudo systemctl restart hourglass` to change them. The service installs the
 unit to `/usr/lib/systemd/system/hourglass.service`.
 
+The service runs as **root** by default (it manages root's crontab). To run it
+as another user instead — managing *that* user's crontab and `~/.ssh` — create
+an override drop-in rather than editing the packaged unit (so it survives
+upgrades):
+
+```bash
+sudo mkdir -p /etc/systemd/system/hourglass.service.d
+printf '[Service]\nUser=someuser\nGroup=someuser\n' \
+  | sudo tee /etc/systemd/system/hourglass.service.d/user.conf
+sudo systemctl daemon-reload && sudo systemctl restart hourglass
+```
+
+The `curl | sh` installer also accepts `HOURGLASS_USER=someuser` to do this for
+you; the `.deb`/`.rpm` postinstall honors it when passed to the package manager.
+
 For distros without packages:
 
 ```bash

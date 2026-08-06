@@ -7,7 +7,19 @@ Wants=network-online.target
 [Service]
 Type=simple
 # Reads config from /etc/hourglass.env (created on install with a random
-# password). Runs as root because it manages root's crontab — the whole point.
+# password). Runs as root by default because the packaged install manages
+# root's crontab — the whole point.
+#
+# To run as a different user (e.g. to manage THAT user's crontab instead),
+# create an override drop-in rather than editing this unit:
+#
+#   mkdir -p /etc/systemd/system/hourglass.service.d
+#   cat > /etc/systemd/system/hourglass.service.d/user.conf <<'EOF'
+#   [Service]
+#   User=someuser
+#   Group=someuser
+#   EOF
+#   systemctl daemon-reload && systemctl restart hourglass
 User=root
 Group=root
 EnvironmentFile=-/etc/hourglass.env

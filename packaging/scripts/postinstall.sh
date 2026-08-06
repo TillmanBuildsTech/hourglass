@@ -31,6 +31,18 @@ fi
 
 # Enable + start on systemd systems (the package targets systemd distros).
 if command -v systemctl >/dev/null 2>&1; then
+    # Optional: run as a non-root user instead of the root default. Honor it
+    # if HOURGLASS_USER was passed to the package manager; otherwise the
+    # packaged unit's User=root stands. Drop-in keeps upgrades safe.
+    if [ -n "${HOURGLASS_USER:-}" ]; then
+        mkdir -p /etc/systemd/system/hourglass.service.d
+        cat > /etc/systemd/system/hourglass.service.d/user.conf <<EOF
+[Service]
+User=${HOURGLASS_USER}
+Group=${HOURGLASS_USER}
+EOF
+        echo "Hourglass service runs as user: ${HOURGLASS_USER}"
+    fi
     systemctl daemon-reload || true
     systemctl enable "$SERVICE" >/dev/null 2>&1 || true
     systemctl restart "$SERVICE" >/dev/null 2>&1 || true

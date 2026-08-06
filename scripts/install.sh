@@ -85,6 +85,19 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ "$(id -u)" =
     UNIT_SRC="$SCRIPT_DIR/../packaging/hourglass.service"
     [ -f "$UNIT_SRC" ] || curl -fsSL "https://raw.githubusercontent.com/TillmanBuildsTech/hourglass/v${VERSION}/packaging/hourglass.service" -o /tmp/hourglass.service
     install -m 0644 "${UNIT_SRC:-/tmp/hourglass.service}" /usr/lib/systemd/system/hourglass.service
+    # Optional: run the service as a non-root user (manages that user's
+    # crontab) instead of the root default. mkdir -p + heredoc is used so the
+    # drop-in is the ONLY place that sets User/Group, leaving the packaged
+    # unit untouched and upgrade-safe.
+    if [ -n "${HOURGLASS_USER:-}" ]; then
+        mkdir -p /etc/systemd/system/hourglass.service.d
+        cat > /etc/systemd/system/hourglass.service.d/user.conf <<EOF
+[Service]
+User=${HOURGLASS_USER}
+Group=${HOURGLASS_USER}
+EOF
+        echo "Service runs as user: ${HOURGLASS_USER}"
+    fi
     systemctl daemon-reload
     systemctl enable --now hourglass.service
     echo "Service started: systemctl status hourglass"
