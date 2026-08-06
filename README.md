@@ -94,41 +94,73 @@ HOURGLASS_AUTH_PASS=secretpass \
 
 Then access at `http://your-server:8080` with basic auth.
 
-### Run as Systemd Service
+### Install as a Service (Linux — .deb / .rpm)
 
-Create `/etc/systemd/system/hourglass.service`:
+Debian/Ubuntu and Fedora/RHEL packages ship a systemd unit and enable the
+service automatically. On first install a random password is generated and
+printed, and the service starts bound to `0.0.0.0:8080` with mDNS
+advertisement, so it is immediately reachable from any device on your LAN:
 
-```ini
-[Unit]
-Description=Hourglass Crontab Manager
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/hourglass
-Restart=always
-RestartSec=10
-Environment="HOURGLASS_BIND=127.0.0.1:8080"
-
-[Install]
-WantedBy=multi-user.target
 ```
-
-Enable and start:
+http://hourglass.local:8080     # from any device on the network
+http://<this-host>:8080         # from the host itself
+```
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable hourglass
-sudo systemctl start hourglass
+# Debian / Ubuntu
+sudo dpkg -i hourglass_linux_amd64.deb
+
+# Fedora / RHEL / openSUSE
+sudo rpm -i hourglass_linux_amd64.rpm
 ```
 
-Check status:
+Credentials are saved in `/etc/hourglass.env` (chmod 600) — edit and
+`sudo systemctl restart hourglass` to change them. The service installs the
+unit to `/usr/lib/systemd/system/hourglass.service`.
+
+The service runs as **root** by default (it manages root's crontab). To run it
+as another user instead — managing *that* user's crontab and `~/.ssh` — create
+an override drop-in rather than editing the packaged unit (so it survives
+upgrades):
 
 ```bash
-sudo systemctl status hourglass
-sudo systemctl logs -u hourglass -f
+sudo mkdir -p /etc/systemd/system/hourglass.service.d
+printf '[Service]\nUser=someuser\nGroup=someuser\n' \
+  | sudo tee /etc/systemd/system/hourglass.service.d/user.conf
+sudo systemctl daemon-reload && sudo systemctl restart hourglass
 ```
+
+The `curl | sh` installer also accepts `HOURGLASS_USER=someuser` to do this for
+you; the `.deb`/`.rpm` postinstall honors it when passed to the package manager.
+
+For distros without packages:
+
+```bash
+curl -fsSL https://github.com/TillmanBuildsTech/hourglass/releases/latest/download/install.sh | sh
+```
+
+### Install as a Service (macOS — Homebrew)
+
+```bash
+brew install TillmanBuildsTech/tap/hourglass
+brew services start hourglass
+```
+
+The formula runs Hourglass as a launchd agent (`keep_alive`, logs in
+`$(brew --prefix)/var/log/hourglass.log`). It binds `127.0.0.1:8080` by
+default — safe, no credentials needed. To expose it on your LAN at
+`http://hourglass.local:8080`, set `HOURGLASS_BIND=0.0.0.0:8080` plus
+`HOURGLASS_AUTH_USER`/`HOURGLASS_AUTH_PASS` in
+`~/Library/LaunchAgents/homebrew.mxcl.hourglass.plist`, then
+`brew services restart hourglass` (Hourglass refuses to serve on
+non-loopback binds without credentials).
+
+### LAN access & mDNS (both platforms)
+
+With `HOURGLASS_BIND=0.0.0.0:8080` and credentials set, Hourglass advertises
+itself over mDNS (Bonjour) so `http://hourglass.local:8080` resolves from any
+device on the network. The advertised name defaults to `hourglass`
+(`HOURGLASS_MDNS_NAME` to override); disable with `HOURGLASS_MDNS=0`.
 
 ## Connection Manager
 
@@ -237,8 +269,18 @@ curl http://localhost:8080/api/version
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HOURGLASS_BIND` | `127.0.0.1:8080` | Server bind address |
-| `HOURGLASS_AUTH_USER` | (none) | Basic auth username (optional) |
-| `HOURGLASS_AUTH_PASS` | (none) | Basic auth password (optional) |
+| `HOURGLASS_AUTH_USER` | (none) | Basic auth username. **Required for non-loopback binds** |
+| `HOURGLASS_AUTH_PASS` | (none) | Basic auth password. **Required for non-loopback binds** |
+| `HOURGLASS_ALLOW_INSECURE` | (none) | `1` serves without auth on non-loopback binds (dangerous — explicit opt-in only) |
+| `HOURGLASS_MDNS` | `1` | Advertise `hourglass.local` over mDNS/Bonjour (skipped on loopback binds; `0` disables) |
+| `HOURGLASS_MDNS_NAME` | `hourglass` | mDNS hostname (the `hourglass` in `hourglass.local`) |
+
+> **Security:** The web UI can execute arbitrary shell commands (Run now,
+> cron writes). Hourglass **refuses to start** on a non-loopback bind
+> (`0.0.0.0` or a LAN IP) unless `HOURGLASS_AUTH_USER` and
+> `HOURGLASS_AUTH_PASS` are both set — an unauthenticated LAN-accessible
+> instance is a remote code execution hole. Bind to `127.0.0.1` to skip
+> credentials, or set `HOURGLASS_ALLOW_INSECURE=1` to explicitly opt out.
 
 ### Running as Non-Root
 

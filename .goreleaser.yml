@@ -26,6 +26,43 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
 
+# Linux packages: .deb (Debian/Ubuntu) + .rpm (Fedora/RHEL/openSUSE).
+# Ships the systemd unit + config template; postinstall generates
+# /etc/hourglass.env with a random password and enables/starts the service.
+nfpms:
+  - id: packages
+    package_name: hourglass
+    vendor: TillmanBuildsTech
+    homepage: https://github.com/TillmanBuildsTech/hourglass
+    maintainer: Tillman Builds Tech <brandon@tillmanbuildstech.com>
+    description: >-
+      Self-hosted web UI for managing cron jobs. See your scheduled tasks,
+      view execution history, and add/edit/delete jobs without touching the
+      command line.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: packaging/hourglass.env
+        dst: /usr/share/hourglass/hourglass.env
+        # template used by postinstall to seed /etc/hourglass.env
+      - src: README.md
+        dst: /usr/share/doc/hourglass/README.md
+    scripts:
+      postinstall: packaging/scripts/postinstall.sh
+      preuninstall: packaging/scripts/preuninstall.sh
+      postuninstall: packaging/scripts/postuninstall.sh
+    overrides:
+      rpm:
+        contents:
+          - src: packaging/hourglass.service
+            dst: /usr/lib/systemd/system/hourglass.service
+      deb:
+        contents:
+          - src: packaging/hourglass.service
+            dst: /lib/systemd/system/hourglass.service
+
 checksum:
   name_template: "checksums.txt"
 
@@ -41,11 +78,3 @@ release:
   github:
     owner: TillmanBuildsTech
     name: hourglass
-
-# Homebrew distribution is handled separately (see .github/workflows/release.yml,
-# job `homebrew-formula`) as a build-from-source Formula rather than a
-# goreleaser cask. Casks ship precompiled, unsigned darwin binaries, which
-# macOS Gatekeeper quarantines and flags with a security warning. A Formula
-# that compiles on the user's machine via `depends_on "go" => :build` avoids
-# that entirely, since Gatekeeper only inspects downloaded executables, not
-# ones built locally.
