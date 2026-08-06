@@ -1,0 +1,93 @@
+name: Auto Release
+
+# Tags and releases a new version whenever the VERSION file is bumped on main,
+# so a merged PR that raises the version automatically ships a release.
+#
+#   VERSION  | existing tag vX | action
+#   ---------+-----------------+-------------------------------
+#   0.11.0   | v0.10.0         | tag v0.11.0 + release
+#   0.11.0-beta1 | v0.10.0     | tag v0.11.0-beta1 + release (prerelease)
+#   0.10.0   | v0.10.0         | nothing (already released)
+#   0.9.0    | v0.10.0         | nothing (lower than latest)
+#
+# A tag pushed with GITHUB_TOKEN does NOT re-trigger tag-based workflows
+# (GitHub recursion protection), so instead of relying on release.yml firing
+# off the tag push, we call it directly via workflow_call after tagging.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.decide.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to tag and release
+        id: decide
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess, sys
+
+          version = open('VERSION').read().strip()
+
+          # Must be a plausible semver (allow prerelease suffixes like -beta1 / -rc1).
+          if not re.fullmatch(r'\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?', version):
+              print(f"::warning::VERSION '{version}' is not a valid semver — skipping auto release")
+              sys.exit(0)
+
+          tag = 'v' + version
+          existing = subprocess.run(['git', 'tag'], capture_output=True, text=True).stdout.split()
+
+          # Idempotent: don't re-release a version that already has a tag.
+          if tag in existing:
+              print(f"::notice::Tag {tag} already exists — nothing to release")
+              sys.exit(0)
+
+          def parse(v):
+              m = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?', v)
+              return (int(m[1]), int(m[2]), int(m[3]), m[4] or '')
+
+          cand = parse(version)
+
+          # Downgrade guard: only release a version >= the current latest stable tag.
+          stable = sorted(
+              (parse(t[1:]) for t in existing if re.fullmatch(r'v\d+\.\d+\.\d+', t)),
+          )
+          if stable and cand < stable[-1]:
+              m3 = stable[-1]
+              print(f"::notice::VERSION {version} is lower than latest release v{m3[0]}.{m3[1]}.{m3[2]} — skipping")
+              sys.exit(0)
+
+          print(f"::notice::New version {version} is unreleased — tagging {tag}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"new_tag={tag}\n")
+          PY
+
+      - name: Create and push tag
+        if: steps.decide.outputs.new_tag != ''
+        env:
+          NEW_TAG: ${{ steps.decide.outputs.new_tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.new_tag != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.decide.outputs.new_tag }}
+    secrets: inherit
