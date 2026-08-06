@@ -51,8 +51,10 @@ nfpms:
         dst: /usr/share/doc/hourglass/README.md
     scripts:
       postinstall: packaging/scripts/postinstall.sh
-      preuninstall: packaging/scripts/preuninstall.sh
-      postuninstall: packaging/scripts/postuninstall.sh
+      # GoReleaser/nfpm uninstall hooks are named preremove/postremove
+      # (deb prerm/postrm, rpm preun/postun) — not "preuninstall".
+      preremove: packaging/scripts/preuninstall.sh
+      postremove: packaging/scripts/postuninstall.sh
     overrides:
       rpm:
         contents:
