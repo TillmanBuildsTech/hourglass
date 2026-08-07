@@ -27,7 +27,7 @@ import (
 // the LAN, so it is skipped when HOURGLASS_BIND points at a loopback
 // address. Disable with HOURGLASS_MDNS=0; override the name with
 // HOURGLASS_MDNS_NAME (default "hourglass").
-func startMDNS(addr string) {
+func startMDNS(addr string, secure bool) {
 	if os.Getenv("HOURGLASS_MDNS") == "0" {
 		log.Printf("mDNS advertisement disabled (HOURGLASS_MDNS=0)")
 		return
@@ -57,13 +57,18 @@ func startMDNS(addr string) {
 		name:     name,
 		port:     port,
 		ip:       ip,
+		secure:   secure,
 		txt:      fmt.Sprintf("version=%s", version()),
 	}
 	if err := r.run(); err != nil {
 		log.Printf("mDNS advertisement failed: %v", err)
 		return
 	}
-	log.Printf("mDNS: http://%s.local:%d — %s", name, port, ip)
+	scheme := "http"
+	if secure {
+		scheme = "https"
+	}
+	log.Printf("mDNS: %s://%s.local:%d — %s", scheme, name, port, ip)
 }
 
 // lanIP returns the IP the mDNS responder should advertise for this host:
@@ -113,12 +118,20 @@ type mdnsResponder struct {
 	name     string // "hourglass"
 	port     int
 	ip       net.IP
+	secure   bool // advertise _https instead of _http
 	txt      string
 }
 
-func (r *mdnsResponder) host() string        { return r.name + ".local." }
-func (r *mdnsResponder) service() string     { return r.instance + "._http._tcp.local." }
-func (r *mdnsResponder) serviceType() string { return "_http._tcp.local." }
+func (r *mdnsResponder) host() string { return r.name + ".local." }
+func (r *mdnsResponder) service() string {
+	return r.instance + "." + r.serviceType()
+}
+func (r *mdnsResponder) serviceType() string {
+	if r.secure {
+		return "_https._tcp.local."
+	}
+	return "_http._tcp.local."
+}
 
 func (r *mdnsResponder) run() error {
 	iface := interfaceWithIP(r.ip)

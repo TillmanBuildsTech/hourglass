@@ -29,7 +29,7 @@ module.exports = {
     launchOptions: CHROMIUM ? { executablePath: CHROMIUM } : {},
   },
   webServer: {
-    command: `env HOURGLASS_BIND=${HOST}:${PORT} HOURGLASS_CRONTAB_FILE=${CRONTAB} HOME=${TEST_HOME} HOURGLASS_MDNS=0 ${BIN}`,
+    command: `env HOURGLASS_BIND=${HOST}:${PORT} HOURGLASS_CRONTAB_FILE=${CRONTAB} HOME=${TEST_HOME} HOURGLASS_MDNS=0 HOURGLASS_TLS=0 ${BIN}`,
     url: `http://${HOST}:${PORT}/api/version`,
     reuseExistingServer: true,
     timeout: 30000,

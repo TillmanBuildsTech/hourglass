@@ -20,6 +20,9 @@ export HG_PORT="${HG_PORT:-18080}"
 export HG_BIN="$HG_TEST_HOME/hourglass"
 (cd "$ROOT" && go build -o "$HG_BIN" .)
 
+# E2E talks plain HTTP (see playwright.config.js)
+export HOURGLASS_TLS=0
+
 # ── 4. Point at the locally cached Chromium (no re-download) ──────────────
 export HG_CHROMIUM="${HG_CHROMIUM:-}"
 if [ -z "$HG_CHROMIUM" ]; then

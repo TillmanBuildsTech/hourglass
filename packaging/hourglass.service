@@ -26,11 +26,15 @@ EnvironmentFile=-/etc/hourglass.env
 ExecStart=/usr/bin/hourglass
 Restart=on-failure
 RestartSec=3
-# Basic hardening. Not ProtectHome: ~/.hourglass (history, connections)
-# and ~/.ssh (remote connection keys) must stay readable/writable.
+# Basic hardening. Not ProtectHome: ~/.hourglass (history, connections,
+# TLS CA) and ~/.ssh (remote connection keys) must stay readable/writable.
+# The ReadWritePaths carve-outs let first-run TLS setup install the local
+# root CA into the system trust store (update-ca-certificates) — with
+# ProtectSystem=full those paths are read-only by default.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+ReadWritePaths=/usr/local/share/ca-certificates /etc/ssl/certs
 
 [Install]
 WantedBy=multi-user.target

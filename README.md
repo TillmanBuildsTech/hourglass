@@ -282,6 +282,7 @@ curl http://localhost:8080/api/version
 | `HOURGLASS_ALLOW_INSECURE` | (none) | `1` serves without auth on non-loopback binds (dangerous — explicit opt-in only) |
 | `HOURGLASS_MDNS` | `1` | Advertise `hourglass.local` over mDNS/Bonjour (skipped on loopback binds; `0` disables) |
 | `HOURGLASS_MDNS_NAME` | `hourglass` | mDNS hostname (the `hourglass` in `hourglass.local`) |
+| `HOURGLASS_TLS` | `auto` | Local HTTPS mode: `auto`, `1` (force), `0` (off) |
 
 > **Security:** The web UI can execute arbitrary shell commands (Run now,
 > cron writes). Hourglass **refuses to start** on a non-loopback bind
@@ -289,6 +290,48 @@ curl http://localhost:8080/api/version
 > `HOURGLASS_AUTH_PASS` are both set — an unauthenticated LAN-accessible
 > instance is a remote code execution hole. Bind to `127.0.0.1` to skip
 > credentials, or set `HOURGLASS_ALLOW_INSECURE=1` to explicitly opt out.
+
+### HTTPS for `hourglass.local` (no more browser warnings)
+
+**Short version: it just works.** On first run Hourglass generates a
+per-machine root CA and a certificate for `hourglass.local`, installs the
+CA into your OS trust store (Linux `update-ca-certificates`, macOS
+keychain, Windows cert store), and serves HTTPS. Your browser shows a
+valid lock at `https://hourglass.local:8080` — no self-signed warning,
+nothing to configure.
+
+**Why not a Let's Encrypt certificate?** Let's Encrypt (and every public
+CA) cannot issue for `hourglass.local`: `.local` is reserved by RFC 6762
+for mDNS and does not exist in the public DNS, so no ACME challenge can
+ever validate it, and the CA/Browser Forum Baseline Requirements forbid
+public certificates for internal names (browsers distrust them). A
+locally-generated, locally-trusted root CA is the only way a `.local`
+name can get a valid certificate — it's the same model mkcert and
+Tailscale use.
+
+What happens in practice, per machine:
+
+- **First run** (as root/admin — the packaged systemd service already
+  runs as root): certs are generated in `~/.hourglass/tls/`
+  (`ca.pem`, `ca-key.pem`, `hourglass.pem`, `hourglass-key.pem`), the CA
+  is added to the OS trust store, and Firefox profiles are configured to
+  trust the OS store too (`security.enterprise_roots.enabled`). The
+  server then advertises `https://hourglass.local:8080` via mDNS.
+- **Not root/admin?** The CA can't be installed, so Hourglass falls back
+  to plain HTTP and logs instructions — it never shows you a scary
+  untrusted-cert warning by surprise. Run `sudo hourglass -install-ca`
+  once, restart, and HTTPS turns on.
+- **Other devices on your LAN** (phone, laptop): fetch the CA once from
+  the running instance and trust it — `curl -k
+  https://hourglass.local:8080/ca.pem` (or visit `/ca.pem` in a browser)
+  — and `https://hourglass.local` is valid there too.
+
+`HOURGLASS_TLS` overrides the behavior: `HOURGLASS_TLS=0` keeps plain
+HTTP exactly like older versions; `HOURGLASS_TLS=1` serves HTTPS even
+when the CA isn't trusted yet (for admins who install trust separately).
+The leaf certificate covers `<mDNS-name>.local`, `localhost`, and the
+loopback IPs, and is renewed automatically when it gets close to expiry
+(the root CA lives for 10 years).
 
 ### Running as Non-Root
 
