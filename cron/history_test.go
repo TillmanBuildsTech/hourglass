@@ -77,6 +77,53 @@ func TestHistoryCacheInvalidate(t *testing.T) {
 	}
 }
 
+func TestParseHistoryLog(t *testing.T) {
+	older := time.UnixMilli(1753680000000)
+	newer := older.Add(5 * time.Minute)
+
+	// Out-of-order on disk (oldest first, as the append-only file writes it),
+	// with a malformed line in the middle that must be skipped.
+	content := strings.Join([]string{
+		historyLine(older, 1, "/usr/bin/backup.sh"),
+		"garbage-line-not-a-record",
+		historyLine(newer, 0, "/root/scripts/tbt_enrich.sh >> /var/log/tbt/enrich.log 2>&1"),
+		"",
+	}, "\n")
+
+	entries := ParseHistoryLog(content)
+
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 parsed entries, got %d: %+v", len(entries), entries)
+	}
+
+	// Newest first.
+	if !entries[0].Timestamp.Equal(newer) {
+		t.Errorf("entries[0].Timestamp = %v, want the newer %v", entries[0].Timestamp, newer)
+	}
+	if entries[0].Command != "/root/scripts/tbt_enrich.sh >> /var/log/tbt/enrich.log 2>&1" {
+		t.Errorf("entries[0].Command = %q, want the decoded enrich command", entries[0].Command)
+	}
+	if entries[0].ExitCode != 0 || entries[0].Status != "success" {
+		t.Errorf("entries[0] = %+v, want success", entries[0])
+	}
+
+	if !entries[1].Timestamp.Equal(older) {
+		t.Errorf("entries[1].Timestamp = %v, want the older %v", entries[1].Timestamp, older)
+	}
+	if entries[1].Command != "/usr/bin/backup.sh" || entries[1].ExitCode != 1 || entries[1].Status != "failed" {
+		t.Errorf("entries[1] = %+v, want the failed backup", entries[1])
+	}
+}
+
+func TestParseHistoryLogEmpty(t *testing.T) {
+	if entries := ParseHistoryLog(""); len(entries) != 0 {
+		t.Errorf("expected no entries for empty content, got %+v", entries)
+	}
+	if entries := ParseHistoryLog("\n\n"); len(entries) != 0 {
+		t.Errorf("expected no entries for blank lines, got %+v", entries)
+	}
+}
+
 func TestNormalizeCommand(t *testing.T) {
 	tests := []struct {
 		input    string

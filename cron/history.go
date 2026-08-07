@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,6 +127,25 @@ func parseHistoryLine(line string) *Execution {
 
 func normalizeCommand(cmd string) string {
 	return strings.TrimSpace(cmd)
+}
+
+// ParseHistoryLog parses the raw contents of the Hourglass execution log
+// into decoded, human-readable records, newest first. The on-disk format is
+// "<unix-millis>	<exit-code>	<base64(cmd)>" — commands are base64-encoded
+// so the shell wrapper never has to quote arbitrary command text, but that
+// makes the raw log opaque to humans. This undoes the encoding for display.
+// Malformed lines (empty, truncated, corrupt base64) are skipped.
+func ParseHistoryLog(content string) []Execution {
+	var entries []Execution
+	for _, line := range strings.Split(content, "\n") {
+		if exec := parseHistoryLine(line); exec != nil {
+			entries = append(entries, *exec)
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Timestamp.After(entries[j].Timestamp)
+	})
+	return entries
 }
 
 func (m *Manager) GetLastExecution(cmd string) *Execution {
