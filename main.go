@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -74,7 +73,10 @@ func main() {
 		log.Fatalf("Failed to initialize connection manager: %v", err)
 	}
 
-	cronManager = cron.NewManager()
+	// newLocalExecutor returns the executor for local (non-remote) operation.
+	// Normally the system crontab; HOURGLASS_CRONTAB_FILE redirects it to a
+	// plain file for isolated E2E/integration testing (see cron.FileExecutor).
+	cronManager = cron.NewManagerWithExecutor(newLocalExecutor())
 	cronManager.StartHistoryRefresh()
 
 	// Restore whichever connection was active when Hourglass last exited -
@@ -418,7 +420,7 @@ func handleSetActiveConnection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		cronManager.SetExecutor(&cron.LocalExecutor{})
+		cronManager.SetExecutor(newLocalExecutor())
 	}
 
 	w.Write([]byte(toJSON(map[string]string{"status": "ok"})))
@@ -481,17 +483,16 @@ func handleExecuteCron(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := entries[req.Index]
-	output, err := cronManager.ExecuteCommand(job.Command)
+	// ExecuteForHistory runs the job through the history wrapper so the
+	// execution is recorded in the (local or remote) history log and
+	// LastRun/LastStatus update immediately, instead of running it raw
+	// (which never wrote a record).
+	output, err := cronManager.ExecuteForHistory(job.Command)
 	if err != nil {
 		log.Printf("failed to execute cron job (index=%d command=%q): %v", req.Index, job.Command, err)
 		http.Error(w, toJSON(APIError{"Failed to execute: " + err.Error()}), http.StatusInternalServerError)
 		return
 	}
-
-	// Refresh history immediately so the next GET /api/cron picks
-	// up the new execution result without waiting for the background
-	// 30-second ticker.
-	cronManager.RefreshHistory()
 
 	w.Write([]byte(toJSON(map[string]string{"status": "ok", "output": output})))
 }
@@ -548,6 +549,18 @@ func switchToRemoteConnection(cfg *connection.Config) error {
 	return nil
 }
 
+// newLocalExecutor returns the local (non-remote) executor. Under normal
+// operation that is LocalExecutor (the system crontab). When
+// HOURGLASS_CRONTAB_FILE is set it returns a file-backed executor so isolated
+// E2E/integration runs can add/edit/delete/toggle jobs without touching real
+// cron jobs.
+func newLocalExecutor() cron.Executor {
+	if file := os.Getenv("HOURGLASS_CRONTAB_FILE"); file != "" {
+		return cron.NewFileExecutor(file)
+	}
+	return &cron.LocalExecutor{}
+}
+
 func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -556,22 +569,17 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	home, err := os.UserHomeDir()
+	// Read through the current executor so the logs reflect whichever host
+	// is connected (local or SSH-remote), not always the host process's own
+	// machine like the old os.ReadFile path did.
+	content, err := cronManager.ReadHistoryLog()
 	if err != nil {
-		http.Error(w, toJSON(APIError{"Failed to resolve home directory"}), http.StatusInternalServerError)
+		log.Printf("failed to read history log: %v", err)
+		http.Error(w, toJSON(APIError{"Failed to read log file"}), http.StatusInternalServerError)
 		return
 	}
 
-	logPath := filepath.Join(home, ".hourglass", "history.log")
-	content, err := os.ReadFile(logPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			w.Write([]byte(toJSON(map[string]string{"content": "", "path": logPath})))
-			return
-		}
-		http.Error(w, toJSON(APIError{"Failed to read log file: " + err.Error()}), http.StatusInternalServerError)
-		return
-	}
+	logPath := cronManager.HistoryLogPath()
 
-	w.Write([]byte(toJSON(map[string]string{"content": string(content), "path": logPath})))
+	w.Write([]byte(toJSON(map[string]string{"content": content, "path": logPath})))
 }

@@ -3,8 +3,11 @@ package cron
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -116,6 +119,65 @@ func (e *LocalExecutor) Execute(command string) (string, error) {
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.Output()
 	return string(output), err
+}
+
+// FileExecutor is an Executor that reads and writes crontab text from a single
+// file instead of the system crontab. It is used for isolated testing (e.g.
+// Playwright E2E against a scratch instance) via the HOURGLASS_CRONTAB_FILE
+// env var: real cron jobs are never touched, while shell commands (history
+// logging, job execution) still run normally. Production does not set that
+// env var, so it keeps using LocalExecutor.
+type FileExecutor struct {
+	Path string
+	mu   sync.Mutex
+}
+
+func NewFileExecutor(path string) *FileExecutor {
+	return &FileExecutor{Path: path}
+}
+
+func (e *FileExecutor) Execute(command string) (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	data, err := os.ReadFile(e.Path)
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to read crontab file: %w", err)
+	}
+	if os.IsNotExist(err) {
+		data = nil
+	}
+	current := string(data)
+
+	switch {
+	case command == "crontab -l":
+		if strings.TrimSpace(current) == "" {
+			return "", fmt.Errorf("no crontab found or permission denied")
+		}
+		return current, nil
+	case command == "crontab -r":
+		if err := os.Remove(e.Path); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to delete crontab: %w", err)
+		}
+		return "", nil
+	case strings.HasPrefix(command, "crontab -"):
+		// Heredoc form produced by WriteCrontab:
+		//   crontab - << 'EOF'\n<text>\nEOF
+		start := strings.Index(command, "\n")
+		end := strings.LastIndex(command, "\nEOF")
+		if start == -1 || end == -1 || end < start {
+			return "", fmt.Errorf("failed to write crontab: malformed heredoc")
+		}
+		text := command[start+1 : end]
+		if err := os.WriteFile(e.Path, []byte(text), 0600); err != nil {
+			return "", fmt.Errorf("failed to write crontab: %w", err)
+		}
+		return "", nil
+	default:
+		cmd := exec.Command("sh", "-c", command)
+		output, err := cmd.Output()
+		return string(output), err
+	}
 }
 
 type Manager struct {
@@ -251,6 +313,42 @@ func (m *Manager) deleteCrontab() error {
 
 func (m *Manager) ExecuteCommand(command string) (string, error) {
 	return m.executor.Execute(command)
+}
+
+// ExecuteForHistory runs command via the current executor wrapped so its
+// result is recorded in the Hourglass execution log, then refreshes the
+// history cache immediately. It is used by the "Run now" action so a manual
+// execution shows up in LastRun/LastStatus without waiting for the 30-second
+// ticker. Because command is wrapped (not run raw), the record is written on
+// both success and failure (with the real exit code).
+func (m *Manager) ExecuteForHistory(command string) (string, error) {
+	m.executor.Execute(ensureHistoryLogDirCommand())
+	output, err := m.executor.Execute(wrapCommandForHistory(command))
+	m.cache.Refresh(m.executor)
+	return output, err
+}
+
+// ReadHistoryLog returns the raw contents of the Hourglass execution log,
+// read through the current executor so it reflects whichever host actually
+// runs the jobs (local or SSH-remote), rather than the Hourglass process's
+// own machine.
+func (m *Manager) ReadHistoryLog() (string, error) {
+	output, err := m.executor.Execute(readHistoryLogCommand())
+	if err != nil {
+		return "", fmt.Errorf("failed to read history log: %w", err)
+	}
+	return output, nil
+}
+
+// HistoryLogPath resolves the absolute path of the Hourglass execution log
+// through the current executor, so the UI paths shown for remote connections
+// point at the remote host rather than the Hourglass process's machine.
+func (m *Manager) HistoryLogPath() string {
+	home, err := m.executor.Execute(`printf '%s' "$HOME"`)
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "$HOME/.hourglass/history.log"
+	}
+	return filepath.Join(strings.TrimSpace(home), ".hourglass", "history.log")
 }
 
 // RefreshHistory forces the history cache to re-read execution logs
