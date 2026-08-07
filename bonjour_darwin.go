@@ -88,9 +88,12 @@ func tryBonjourRegister(name string, ip net.IP, port int, secure bool) bool {
 		C.kDNSServiceClass_IN,
 		4, // rdlen
 		unsafe.Pointer(&rdata[0]),
-		120,                        // ttl seconds
-		C.recordConflictTrampoline, // callBack (logs async conflicts; defined in bonjour_trampoline.c)
-		nil,                        // context
+		120, // ttl seconds
+		// The preamble declaration makes cgo emit an fpvar (unsafe.Pointer);
+		// it references the external symbol defined in bonjour_trampoline.c.
+		// Cast to the callback's function-pointer type (*[0]byte).
+		(*[0]byte)(C.recordConflictTrampoline), // callBack (logs async conflicts)
+		nil,                                    // context
 	)
 	if serr != C.kDNSServiceErr_NoError {
 		C.DNSServiceRefDeallocate(connRef)
