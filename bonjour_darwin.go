@@ -29,12 +29,14 @@ package main
 extern void goRecordConflict(DNSServiceRef, DNSRecordRef, DNSServiceFlags, DNSServiceErrorType, void*);
 
 // Trampoline so the C callback can call back into Go (cgo rule: a Go
-// function pointer must not be passed directly to C). Non-static so cgo
-// binds it as a real C function (static functions become fpvar pointers
-// that cannot convert to the callback's function-pointer type).
-void recordConflictTrampoline(DNSServiceRef sdRef, DNSRecordRef RecordRef,
-                              DNSServiceFlags flags, DNSServiceErrorType errorCode,
-                              void *context) {
+// function pointer must not be passed directly to C). static (internal
+// linkage) so it is not emitted as a duplicate external symbol when the
+// preamble is copied into both generated C files (the //export rule: a
+// preamble that uses //export must contain declarations, not definitions —
+// internal-linkage definitions are the exception that compiles cleanly).
+static void recordConflictTrampoline(DNSServiceRef sdRef, DNSRecordRef RecordRef,
+                                     DNSServiceFlags flags, DNSServiceErrorType errorCode,
+                                     void *context) {
     goRecordConflict(sdRef, RecordRef, flags, errorCode, context);
 }
 */
