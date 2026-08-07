@@ -24,13 +24,17 @@ package main
 #include <dns_sd.h>
 #include <stdlib.h>
 
-// Trampoline so the C callback can call back into Go (cgo rule: a Go
-// function pointer must not be passed directly to C).
-static void goRecordConflict(DNSServiceRef, DNSRecordRef, DNSServiceFlags, DNSServiceErrorType, void*);
+// goRecordConflict is provided by the //export directive below — it must be
+// declared extern (not static) so the C compiler links it to the Go symbol.
+extern void goRecordConflict(DNSServiceRef, DNSRecordRef, DNSServiceFlags, DNSServiceErrorType, void*);
 
-static void recordConflictTrampoline(DNSServiceRef sdRef, DNSRecordRef RecordRef,
-                                     DNSServiceFlags flags, DNSServiceErrorType errorCode,
-                                     void *context) {
+// Trampoline so the C callback can call back into Go (cgo rule: a Go
+// function pointer must not be passed directly to C). Non-static so cgo
+// binds it as a real C function (static functions become fpvar pointers
+// that cannot convert to the callback's function-pointer type).
+void recordConflictTrampoline(DNSServiceRef sdRef, DNSRecordRef RecordRef,
+                              DNSServiceFlags flags, DNSServiceErrorType errorCode,
+                              void *context) {
     goRecordConflict(sdRef, RecordRef, flags, errorCode, context);
 }
 */
