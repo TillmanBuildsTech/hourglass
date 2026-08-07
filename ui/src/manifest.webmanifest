@@ -1,0 +1,14 @@
+{
+  "name": "Hourglass — Crontab Manager",
+  "short_name": "Hourglass",
+  "description": "Self-hosted web UI for managing cron jobs. See your scheduled tasks, view execution history, and add/edit/delete jobs without touching the command line.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0C0E17",
+  "theme_color": "#0C0E17",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -4,7 +4,7 @@
   "description": "Hourglass is a lightweight, self-hosted web UI for managing Linux cron jobs. See your scheduled tasks, view execution history, and add/edit/delete jobs without touching the command line.",
   "main": "./src/index.js",
   "scripts": {
-    "build": "terser ./src/index.js -o ./dist/index.min.js -c -m && tailwindcss -i ./src/index.css -o ./dist/index.css --minify",
+    "build": "terser ./src/index.js -o ./dist/index.min.js -c -m && tailwindcss -i ./src/index.css -o ./dist/index.css --minify && cp src/icon.svg src/icon-180.png src/icon-192.png src/icon-512.png src/manifest.webmanifest dist/",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
