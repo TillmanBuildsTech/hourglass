@@ -170,7 +170,13 @@ func authMiddleware(next http.Handler) http.Handler {
 		}
 		path := r.URL.Path
 		if path == "/" || strings.HasPrefix(path, "/dist/") ||
-			strings.HasPrefix(path, "/api/auth/") || path == "/api/version" {
+			strings.HasPrefix(path, "/api/auth/") || path == "/api/version" ||
+			path == "/ca.pem" {
+			// /ca.pem serves the public root CA certificate so other LAN
+			// devices can fetch and trust it (see README "Other devices on
+			// your LAN"). The cert is public material — the CA private key is
+			// never served — so it must stay reachable without credentials,
+			// even when auth is enabled on a LAN bind.
 			next.ServeHTTP(w, r)
 			return
 		}

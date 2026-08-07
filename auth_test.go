@@ -59,8 +59,9 @@ func TestAuthMiddlewarePublicRoutes(t *testing.T) {
 
 	// HTML shell, static assets, and /api/version stay reachable without
 	// credentials so the frontend can render the login view (no native
-	// browser prompt).
-	for _, path := range []string{"/", "/dist/app.css", "/api/version"} {
+	// browser prompt). /ca.pem serves the public root CA certificate so
+	// other LAN devices can fetch and trust it without logging in.
+	for _, path := range []string{"/", "/dist/app.css", "/api/version", "/ca.pem"} {
 		rec := doAuthRequest(h, http.MethodGet, path, nil)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("public route %s should be reachable without auth, got %d", path, rec.Code)
