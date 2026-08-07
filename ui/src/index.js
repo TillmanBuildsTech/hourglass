@@ -5,6 +5,13 @@ let editIndex = -1;
 let isLocalOnly = false;
 let activeConnectionId = '';
 
+// Jobs currently executing via the play button. Keyed by row index; the
+// /api/cron/execute request stays pending until the job finishes (which can
+// take a minute), so the row shows a loading bar while the index is in here.
+// Kept in a Set (not DOM state) because loadJobs() re-renders the table on
+// the 5s poll and the bar must survive those re-renders.
+const runningJobs = new Set();
+
 // ── Theme ──────────────────────────────────────────────────────────────────
 (function initTheme() {
     const saved = localStorage.getItem('hg-theme');
@@ -494,7 +501,7 @@ async function testConnection() {
 
 async function saveConnection() {
     if (isLocalOnly) {
-        showError('Cannot add remote connections when running locally');
+        showError('This instance is private (localhost). Use an SSH tunnel to reach a remote instance — see Help.');
         return;
     }
     const host    = document.getElementById('conn-host').value.trim();
@@ -597,8 +604,8 @@ const ICONS = {
     delete: '<svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M8 2a1 1 0 0 0-1 1v1H4a1 1 0 1 0 0 2h.4l.7 10.1A2 2 0 0 0 7.1 18h5.8a2 2 0 0 0 2-1.9L15.6 6h.4a1 1 0 1 0 0-2h-3V3a1 1 0 0 0-1-1H8Zm1 2h2V4H9v0Zm-1.6 4a.8.8 0 0 1 1.6 0v6a.8.8 0 0 1-1.6 0V8Zm4.8 0a.8.8 0 0 1 1.6 0v6a.8.8 0 0 1-1.6 0V8Z" clip-rule="evenodd"/></svg>',
 };
 
-function iconBtn(icon, onclick, title, extraClass) {
-    return `<button onclick="${onclick}" class="btn-icon ${extraClass}" title="${title}" aria-label="${title}">${ICONS[icon]}</button>`;
+function iconBtn(icon, onclick, title, extraClass, disabled) {
+    return `<button onclick="${onclick}" class="btn-icon ${extraClass}" title="${title}" aria-label="${title}"${disabled ? ' disabled' : ''}>${ICONS[icon]}</button>`;
 }
 
 function renderJobs() {
@@ -616,19 +623,21 @@ function renderJobs() {
         const title     = job.Comment || job.Command;
         const subtitle  = job.Comment ? job.Command : '';
         const disabledBadge = job.Inactive ? '<div class="disabled-tag">⏸ Disabled</div>' : '';
+        const isRunning = runningJobs.has(idx);
         return `
-        <tr class="job-row${job.Inactive ? ' inactive' : ''}">
+        <tr class="job-row${job.Inactive ? ' inactive' : ''}${isRunning ? ' running' : ''}">
             <td class="job-name-cell">
                 <div class="job-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
                 ${disabledBadge}
                 ${subtitle ? `<div class="job-sub" title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</div>` : ''}
                 <code class="job-sched">${escapeHtml(job.Schedule)}</code>
+                ${isRunning ? '<div class="job-run-bar"><span></span></div>' : ''}
             </td>
             <td class="job-lastrun">${lastRun}</td>
             <td class="job-status"><span class="status-badge ${statusCls}">${statusIcon}</span></td>
             <td class="job-actions-cell">
                 <div class="action-group">
-                    ${!job.Inactive ? iconBtn('run',  `executeJob(${idx})`, 'Run now', 'run') : ''}
+                    ${!job.Inactive ? iconBtn('run',  `executeJob(${idx})`, 'Run now', 'run', isRunning) : ''}
                     ${iconBtn(job.Inactive ? 'run' : 'pause', `toggleJob(${idx})`, job.Inactive ? 'Enable' : 'Disable', 'toggle')}
                     ${iconBtn('edit',   `editJob(${idx})`,   'Edit',   'edit')}
                     ${iconBtn('delete', `deleteJob(${idx})`, 'Delete', 'del')}
@@ -670,6 +679,9 @@ function deleteJob(idx) {
 }
 
 async function executeJob(idx) {
+    if (runningJobs.has(idx)) return; // already running — ignore double-clicks
+    runningJobs.add(idx);
+    renderJobs(); // show the loading bar immediately
     try {
         const resp = await fetch('/api/cron/execute', {
             method: 'POST',
@@ -686,6 +698,9 @@ async function executeJob(idx) {
         await loadJobs();
     } catch (err) {
         showError('Failed to execute job: ' + err.message);
+    } finally {
+        runningJobs.delete(idx);
+        renderJobs(); // bar off once the request settles
     }
 }
 
@@ -777,6 +792,8 @@ async function initVersion() {
         if (!resp.ok) return;
         const data = await resp.json();
         document.getElementById('app-version').textContent = data.version ? `v${data.version}` : '';
+        const helpVersion = document.getElementById('help-version');
+        if (helpVersion) helpVersion.textContent = data.version ? `v${data.version}` : '';
         if (data.goos === 'darwin' && !sessionStorage.getItem('hourglass-macos-banner-dismissed')) {
             document.getElementById('macos-banner').classList.remove('hidden');
         }
@@ -824,6 +841,9 @@ if (brandHome) {
 
 // Wire logs button
 document.getElementById('nav-logs').addEventListener('click', () => switchView('logs'));
+
+// Wire help button
+document.getElementById('nav-help').addEventListener('click', () => switchView('help'));
 
 // Polling: jobs every 30s, logs every 5s when active
 let _lastView = 'jobs';

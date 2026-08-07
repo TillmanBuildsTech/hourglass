@@ -92,9 +92,10 @@
 
       <!-- Local-only info note -->
       <div id="local-only-message" class="info-note hidden">
-        Running locally — cannot add remote connections.<br>
-        Use SSH tunneling:<br>
-        <code>ssh -L 8080:localhost:8080 user@server</code>
+        Running on localhost — this instance is private, not exposed to the network.<br>
+        You can still manage a remote instance over an SSH tunnel — the service can stay bound to localhost (never 0.0.0.0) and the UI connection is encrypted through the tunnel:<br>
+        <code>ssh -L 8080:localhost:8080 user@server</code><br>
+        <a href="#" onclick="switchView('help');return false;" style="color:var(--gold)">See Help for the full guide</a>
       </div>
 
       <div class="divider"></div>
@@ -105,6 +106,19 @@
             <path d="M12 5v14M5 12h14"/>
           </svg>
           Add Connection
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="sidebar-section">
+        <button id="nav-help" class="sidebar-btn">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          Help
         </button>
       </div>
 
@@ -381,6 +395,78 @@
           </div>
         </div>
         <div style="margin-top:6px;font-size:11px;color:var(--text-3)" id="log-path"></div>
+      </div>
+
+      <!-- ── View: Help / Documentation ── -->
+      <div id="view-help" class="content-view hidden">
+        <div class="section-header">
+          <button class="btn-back" onclick="goHome()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+            Cron Jobs
+          </button>
+          <h2 class="section-title">Help</h2>
+        </div>
+        <div class="form-view-scroll">
+          <div class="help-inner">
+
+            <div class="help-section">
+              <h3 class="help-h">What is Hourglass?</h3>
+              <p class="help-p">Hourglass is a lightweight web UI for managing cron jobs on a Linux or macOS machine. You can view, add, edit, enable/disable, run, and delete scheduled jobs without touching the command line.</p>
+            </div>
+
+            <div class="help-section">
+              <h3 class="help-h">Managing jobs</h3>
+              <ul class="help-ul">
+                <li><strong>Add a job</strong> — click <em>Add New Job</em>, enter a schedule (<code>0 9 * * *</code>), the command to run, and an optional comment (shown as the job name).</li>
+                <li><strong>Edit</strong> — click the pencil icon on a job row to change its schedule, command, or comment.</li>
+                <li><strong>Enable / Disable</strong> — click the pause/play icon to comment or uncomment a job without deleting it.</li>
+                <li><strong>Run now</strong> — click the play icon to execute the job immediately (results are recorded in the logs).</li>
+                <li><strong>Delete</strong> — click the trash icon and confirm. This cannot be undone.</li>
+              </ul>
+              <p class="help-p">The <strong>?</strong> button next to the Schedule field shows a full cron syntax reference with a live preview.</p>
+            </div>
+
+            <div class="help-section">
+              <h3 class="help-h">Last run &amp; status</h3>
+              <p class="help-p">Each job shows when it last ran and whether it succeeded (✓ / ✗). Hourglass records this by wrapping active jobs when it writes them to the crontab. Jobs installed outside Hourglass are automatically wrapped the first time they're viewed. The <em>View Logs</em> page shows the full execution history.</p>
+            </div>
+
+            <div class="help-section">
+              <h3 class="help-h">Connections</h3>
+              <p class="help-p">Hourglass manages <strong>one crontab at a time</strong> — either the machine it runs on (<em>Local</em>) or a remote machine you reach over SSH. Use <em>Add Connection</em> to save a remote host (hostname, SSH port, username, and private key path), then click <em>Connect</em> on a saved connection to switch to it. The UI shows which host you're currently connected to in the header.</p>
+              <p class="help-p">Only one connection is active at a time, and the job list always shows the <strong>active</strong> connection's crontab — never a merged view.</p>
+            </div>
+
+            <div class="help-section">
+              <h3 class="help-h">Reaching a remote instance over SSH (tunneling)</h3>
+              <p class="help-p">Hourglass can be installed on another machine (for example a server that manages that machine's own crontab) and accessed from your laptop <strong>without exposing it to the network</strong>. The Hourglass service itself stays bound to <code>127.0.0.1</code> — it never listens on a public address like <code>0.0.0.0</code> — and your browser's connection to the UI travels through an encrypted SSH tunnel.</p>
+              <ol class="help-ol">
+                <li>On the remote machine, run Hourglass bound to localhost only:
+                  <pre class="help-pre"><code>HOURGLASS_BIND=127.0.0.1:8080 ./hourglass</code></pre>
+                  (or set <code>HOURGLASS_BIND=127.0.0.1:8080</code> in its systemd/launchd unit). Loopback binds need no credentials.
+                </li>
+                <li>From your laptop, open an SSH tunnel to that machine:
+                  <pre class="help-pre"><code>ssh -L 8080:localhost:8080 user@remote-server</code></pre>
+                </li>
+                <li>Open <code>http://localhost:8080</code> in your browser — you're now viewing the remote instance through the tunnel.</li>
+              </ol>
+              <p class="help-p">The tunnel keeps the connection private: the service is never reachable by other machines on the network, and all UI traffic is encrypted by SSH. If the remote instance has authentication enabled, you'll sign in normally over the tunnel.</p>
+            </div>
+
+            <div class="help-section">
+              <h3 class="help-h">Authentication</h3>
+              <p class="help-p">When Hourglass is bound to a non-loopback address (LAN-accessible), it generates credentials on first run and prints them to the log (<code>Login: admin / &lt;password&gt;</code>), saved in <code>~/.hourglass/auth.env</code>. You can also set <code>HOURGLASS_AUTH_USER</code> and <code>HOURGLASS_AUTH_PASS</code> explicitly. Loopback binds (<code>127.0.0.1</code>) stay password-free.</p>
+            </div>
+
+            <div class="help-section">
+              <h3 class="help-h">Version</h3>
+              <p class="help-p">Current version: <span id="help-version"></span></p>
+            </div>
+
+          </div>
+        </div>
       </div>
 
     </main>
