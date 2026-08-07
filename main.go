@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"runtime"
@@ -111,6 +112,9 @@ func main() {
 	}
 
 	distFS, _ := fs.Sub(uiFS, "ui/dist")
+	// .webmanifest isn't in Go's built-in MIME table; Chrome requires a JSON
+	// manifest MIME type or it ignores the web app manifest.
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.FS(distFS))))
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/api/version", handleVersion)
