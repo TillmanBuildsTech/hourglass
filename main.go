@@ -187,7 +187,10 @@ func main() {
 	}
 	handler := authMiddleware(http.DefaultServeMux)
 	if secure {
-		if err := http.ListenAndServeTLS(addr, tlsSetup.certFile, tlsSetup.keyFile, handler); err != nil {
+		// Serve HTTPS on addr; plain-HTTP requests on the same port get a
+		// 308 redirect to https:// (so http://localhost:8080 just works
+		// instead of being dropped by the TLS listener).
+		if err := serveTLSWithRedirect(addr, tlsSetup.certFile, tlsSetup.keyFile, handler); err != nil {
 			log.Fatalf("Server failed: %v", err)
 		}
 		return
