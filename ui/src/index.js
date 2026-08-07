@@ -494,7 +494,7 @@ async function testConnection() {
 
 async function saveConnection() {
     if (isLocalOnly) {
-        showError('Cannot add remote connections when running locally');
+        showError('This instance is private (localhost). Use an SSH tunnel to reach a remote instance — see Help.');
         return;
     }
     const host    = document.getElementById('conn-host').value.trim();
@@ -777,6 +777,8 @@ async function initVersion() {
         if (!resp.ok) return;
         const data = await resp.json();
         document.getElementById('app-version').textContent = data.version ? `v${data.version}` : '';
+        const helpVersion = document.getElementById('help-version');
+        if (helpVersion) helpVersion.textContent = data.version ? `v${data.version}` : '';
         if (data.goos === 'darwin' && !sessionStorage.getItem('hourglass-macos-banner-dismissed')) {
             document.getElementById('macos-banner').classList.remove('hidden');
         }
@@ -824,6 +826,9 @@ if (brandHome) {
 
 // Wire logs button
 document.getElementById('nav-logs').addEventListener('click', () => switchView('logs'));
+
+// Wire help button
+document.getElementById('nav-help').addEventListener('click', () => switchView('help'));
 
 // Polling: jobs every 30s, logs every 5s when active
 let _lastView = 'jobs';

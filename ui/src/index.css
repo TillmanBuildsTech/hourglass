@@ -741,6 +741,59 @@ table.jobs-table {
 }
 .btn-test:hover { background: rgba(34,197,94,.18); }
 
+/* ── View: Help / Documentation ── */
+.help-inner {
+  max-width: 640px;
+}
+.help-section {
+  margin-bottom: 22px;
+}
+.help-h {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 6px;
+}
+.help-p {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-2);
+  margin: 0 0 8px;
+}
+.help-ul, .help-ol {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.help-ul li, .help-ol li { margin-bottom: 5px; }
+.help-ul code, .help-ol code, .help-p code {
+  font-family: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+  font-size: 11px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-1);
+}
+.help-pre {
+  margin: 6px 0;
+  padding: 8px 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+.help-pre code {
+  font-family: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+  font-size: 11px;
+  color: var(--gold);
+  background: none;
+  border: none;
+  padding: 0;
+}
+
 /* ── Cron Help Button ── */
 .cron-help-btn {
   width: 17px;
