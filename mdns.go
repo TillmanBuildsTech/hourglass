@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -140,6 +141,14 @@ func (r *mdnsResponder) run() error {
 	if err != nil {
 		return fmt.Errorf("listen multicast: %w", err)
 	}
+	// Before announcing, probe for a name conflict: another Hourglass (or any
+	// device) may already be answering <name>.local with a different IP (e.g.
+	// two instances on one LAN — the hermes server and a desktop both wanting
+	// hourglass.local). RFC 6762 §8.1: a host must not claim a name another
+	// host is using. On conflict we re-claim as <name>-2.local, <name>-3.local,
+	// ... (the Home Assistant model: homeassistant-2.local) so every instance
+	// stays discoverable instead of fighting over one name.
+	r.probeAndRename(conn)
 	go func() {
 		defer conn.Close()
 		r.announce(conn)
@@ -156,6 +165,110 @@ func (r *mdnsResponder) run() error {
 		}
 	}()
 	return nil
+}
+
+// probeAndRename sends a query for our <name>.local A record and watches for
+// a response claiming the same name with a different IP. If another host
+// owns the name, it renames to <name>-2.local, then -3.local, etc. (up to a
+// sane bound) before the responder announces.
+func (r *mdnsResponder) probeAndRename(conn *net.UDPConn) {
+	r.probeAndRenameWith(conn, r.probeName)
+}
+
+// probeAndRenameWith is probeAndRename with an injectable probe so tests can
+// drive the rename loop without multicast. probe returns true when the name
+// is free.
+func (r *mdnsResponder) probeAndRenameWith(conn *net.UDPConn, probe func(*net.UDPConn) bool) {
+	const maxSuffix = 20
+	base := r.name
+	for suffix := 1; suffix <= maxSuffix; suffix++ {
+		if probe(conn) {
+			return // name is free — claim it
+		}
+		if suffix == maxSuffix {
+			log.Printf("mDNS: %s.local is busy on this LAN; giving up renaming after %d tries", base, maxSuffix)
+			return
+		}
+		r.name = fmt.Sprintf("%s-%d", base, suffix+1)
+		log.Printf("mDNS: %s.local is taken on this LAN — advertising as %s.local instead", base, r.name)
+	}
+}
+
+// probeName queries the multicast group for an A record of our hostname and
+// returns true if no other host answered for it. Responses carrying our own
+// IP (our previous announcements, or loopback) are ignored.
+func (r *mdnsResponder) probeName(conn *net.UDPConn) bool {
+	q := r.buildProbeQuery()
+	if len(q) == 0 {
+		return true // can't build a probe; announce and hope for the best
+	}
+	addr := &net.UDPAddr{IP: net.ParseIP(mdnsGroup), Port: 5353}
+	if _, err := conn.WriteToUDP(q, addr); err != nil {
+		return true
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(800 * time.Millisecond))
+	defer conn.SetReadDeadline(time.Time{})
+	buf := make([]byte, 1500)
+	for {
+		n, src, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return true // timeout: nobody answered — name is free
+		}
+		if src.IP.IsLoopback() || src.IP.Equal(r.ip) {
+			continue
+		}
+		var msg dnsmessage.Message
+		if err := msg.Unpack(buf[:n]); err != nil {
+			continue
+		}
+		if mDNSResponseClaimsName(msg, r.host(), r.ip) {
+			log.Printf("mDNS: %s is already claimed by another host", r.host())
+			return false // conflict — rename
+		}
+	}
+}
+
+// mDNSResponseClaimsName reports whether a parsed mDNS message answers an A
+// record for host with an IP different from ourIP — i.e. another host owns
+// the name we want. Responses that only carry our own IP are not a conflict.
+func mDNSResponseClaimsName(msg dnsmessage.Message, host string, ourIP net.IP) bool {
+	for _, a := range msg.Answers {
+		if a.Header.Type != dnsmessage.TypeA {
+			continue
+		}
+		if strings.ToLower(a.Header.Name.String()) != host {
+			continue
+		}
+		ar, ok := a.Body.(*dnsmessage.AResource)
+		if !ok {
+			continue
+		}
+		claimed := net.IPv4(ar.A[0], ar.A[1], ar.A[2], ar.A[3])
+		if !claimed.Equal(ourIP) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildProbeQuery constructs a DNS query for our hostname's A record.
+func (r *mdnsResponder) buildProbeQuery() []byte {
+	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{})
+	if err := b.StartQuestions(); err != nil {
+		return nil
+	}
+	if err := b.Question(dnsmessage.Question{
+		Name:  dnsmessage.MustNewName(r.host()),
+		Type:  dnsmessage.TypeA,
+		Class: dnsmessage.ClassINET,
+	}); err != nil {
+		return nil
+	}
+	out, err := b.Finish()
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 func interfaceWithIP(ip net.IP) *net.Interface {

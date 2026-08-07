@@ -172,6 +172,13 @@ itself over mDNS (Bonjour) so `http://hourglass.local:8080` resolves from any
 device on the network. The advertised name defaults to `hourglass`
 (`HOURGLASS_MDNS_NAME` to override); disable with `HOURGLASS_MDNS=0`.
 
+If another device on the LAN is already answering `<name>.local` (e.g. a
+second Hourglass, or the same name in use by another service), Hourglass
+probes for the conflict on startup and advertises as `<name>-2.local`,
+`<name>-3.local`, … instead (the Home Assistant model) — so multiple
+instances on one network stay individually reachable rather than fighting
+over one name. Watch the startup log to see which name was chosen.
+
 ## Connection Manager
 
 Hourglass includes a built-in connection manager for accessing multiple Hourglass instances from a single UI.

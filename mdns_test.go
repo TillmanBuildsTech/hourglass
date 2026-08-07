@@ -26,9 +26,99 @@ func TestMDNSServiceType(t *testing.T) {
 	}
 }
 
-// TestMDNSBuildResponseSecure checks the actual wire payload for a TLS
-// responder: the PTR/SRV records must use _https._tcp.local. so Bonjour
-// clients (macOS Finder, iOS, avahi) present https://hourglass.local.
+// TestMDNSProbeQuery verifies the conflict-probe query asks for the A record
+// of our hostname (RFC 6762 §8.1 probing).
+func TestMDNSProbeQuery(t *testing.T) {
+	r := &mdnsResponder{instance: "Hourglass", name: "hourglass", port: 8080, ip: net.ParseIP("192.168.1.241")}
+	raw := r.buildProbeQuery()
+	if len(raw) == 0 {
+		t.Fatal("buildProbeQuery returned empty payload")
+	}
+	var msg dnsmessage.Message
+	if err := msg.Unpack(raw); err != nil {
+		t.Fatalf("probe query does not unpack: %v", err)
+	}
+	if len(msg.Questions) != 1 {
+		t.Fatalf("expected 1 question, got %d", len(msg.Questions))
+	}
+	q := msg.Questions[0]
+	if q.Name.String() != "hourglass.local." {
+		t.Errorf("question name = %q, want hourglass.local.", q.Name)
+	}
+	if q.Type != dnsmessage.TypeA {
+		t.Errorf("question type = %v, want A", q.Type)
+	}
+}
+
+// TestMDNSResponseClaimsName covers the conflict detector: an A answer for
+// our hostname with a different IP is a conflict; our own IP or a different
+// hostname is not.
+func TestMDNSResponseClaimsName(t *testing.T) {
+	ourIP := net.ParseIP("192.168.1.241")
+
+	build := func(name string, ip net.IP) dnsmessage.Message {
+		b := dnsmessage.NewBuilder(nil, dnsmessage.Header{Response: true})
+		b.StartAnswers()
+		b.AResource(dnsmessage.ResourceHeader{
+			Name:  dnsmessage.MustNewName(name),
+			Type:  dnsmessage.TypeA,
+			Class: dnsmessage.ClassINET,
+			TTL:   120,
+		}, dnsmessage.AResource{A: [4]byte{ip[12], ip[13], ip[14], ip[15]}})
+		raw, err := b.Finish()
+		if err != nil {
+			t.Fatalf("build response: %v", err)
+		}
+		var msg dnsmessage.Message
+		if err := msg.Unpack(raw); err != nil {
+			t.Fatalf("unpack response: %v", err)
+		}
+		return msg
+	}
+
+	// Another host answers our name with a different IP → conflict.
+	if !mDNSResponseClaimsName(build("hourglass.local.", net.ParseIP("192.168.1.90")), "hourglass.local.", ourIP) {
+		t.Error("different IP for our hostname should be a conflict")
+	}
+	// Our own IP answering our name → not a conflict (our own announcement).
+	if mDNSResponseClaimsName(build("hourglass.local.", ourIP), "hourglass.local.", ourIP) {
+		t.Error("our own IP should not be a conflict")
+	}
+	// A different hostname with a different IP → not our conflict.
+	if mDNSResponseClaimsName(build("other.local.", net.ParseIP("192.168.1.90")), "hourglass.local.", ourIP) {
+		t.Error("different hostname should not be a conflict")
+	}
+}
+
+// TestMDNSProbeAndRenameRenamesOnConflict drives the real rename loop with an
+// injected probe: a responder whose probe always reports a conflict ends up
+// as <name>-N.local; a free name keeps the original.
+func TestMDNSProbeAndRenameRenamesOnConflict(t *testing.T) {
+	r := &mdnsResponder{instance: "Hourglass", name: "hourglass", ip: net.ParseIP("192.168.1.241")}
+	// probe always reports "conflict" (name taken).
+	conflict := func(*net.UDPConn) bool { return false }
+	r.probeAndRenameWith(nil, conflict)
+	if r.name != "hourglass-20" {
+		t.Errorf("after max conflicts name = %q, want hourglass-20", r.name)
+	}
+
+	// Free name: probe reports no conflict, name stays the base.
+	r2 := &mdnsResponder{instance: "Hourglass", name: "hourglass", ip: net.ParseIP("192.168.1.241")}
+	free := func(*net.UDPConn) bool { return true }
+	r2.probeAndRenameWith(nil, free)
+	if r2.name != "hourglass" {
+		t.Errorf("free name after probe = %q, want hourglass", r2.name)
+	}
+
+	// One conflict then free: renames once to -2.
+	r3 := &mdnsResponder{instance: "Hourglass", name: "hourglass", ip: net.ParseIP("192.168.1.241")}
+	calls := 0
+	conflictOnce := func(*net.UDPConn) bool { calls++; return calls > 1 }
+	r3.probeAndRenameWith(nil, conflictOnce)
+	if r3.name != "hourglass-2" {
+		t.Errorf("after one conflict name = %q, want hourglass-2", r3.name)
+	}
+}
 func TestMDNSBuildResponseSecure(t *testing.T) {
 	r := &mdnsResponder{
 		instance: "Hourglass",
