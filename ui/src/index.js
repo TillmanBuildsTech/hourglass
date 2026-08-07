@@ -547,14 +547,26 @@ document.getElementById('conn-cancel').addEventListener('click', () => {
 });
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
+// jobsSeq guards against out-of-order /api/cron responses. The UI polls
+// every 5s AND reloads after every mutation/connection switch; when the
+// active host is SSH-remote a request can take seconds while a later one
+// (e.g. after switching back to local) returns almost instantly. Without a
+// sequence check the stale response would render last and the list would
+// show the previous connection's jobs until the next poll.
+let jobsSeq = 0;
 async function loadJobs() {
+    const seq = ++jobsSeq;
     try {
         const resp = await fetch('/api/cron');
+        if (seq !== jobsSeq) return; // superseded by a newer load
         if (!resp.ok) throw new Error('Failed to load jobs');
-        jobs = await resp.json() || [];
+        const data = await resp.json() || [];
+        if (seq !== jobsSeq) return; // re-check after the parse
+        jobs = data;
         renderJobs();
         clearError();
     } catch (err) {
+        if (seq !== jobsSeq) return;
         showError('Failed to load cron jobs: ' + err.message);
     }
 }

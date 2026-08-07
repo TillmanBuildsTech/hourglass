@@ -49,6 +49,10 @@ nfpms:
         # template used by postinstall to seed /etc/hourglass.env
       - src: README.md
         dst: /usr/share/doc/hourglass/README.md
+      - src: ui/dist/icon.svg
+        dst: /usr/share/icons/hicolor/scalable/apps/hourglass.svg
+      - src: ui/dist/icon-512.png
+        dst: /usr/share/icons/hicolor/512x512/apps/hourglass.png
     scripts:
       postinstall: packaging/scripts/postinstall.sh
       # GoReleaser/nfpm uninstall hooks are named preremove/postremove

@@ -42,6 +42,17 @@ func (h *HistoryCache) Get(command string) *Execution {
 	return h.entries[normalizeCommand(command)]
 }
 
+// Invalidate marks the cache as stale so the next Get forces a re-read
+// through the current executor. Called when the active connection changes
+// (local <-> SSH-remote), so LastRun/LastStatus from the previous host can
+// never be served for the new host's jobs during the up-to-30s window before
+// the background ticker refreshes.
+func (h *HistoryCache) Invalidate() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.lastUpdate = time.Time{}
+}
+
 // Refresh re-reads the Hourglass-owned execution log through executor (so
 // it works against both local and SSH-remote crontabs) and rebuilds the
 // cache with the latest execution per command.

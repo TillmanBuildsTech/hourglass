@@ -58,6 +58,25 @@ func TestHistoryCacheTTL(t *testing.T) {
 	}
 }
 
+func TestHistoryCacheInvalidate(t *testing.T) {
+	cache := NewHistoryCache(1 * time.Hour)
+
+	if err := cache.Refresh(&fakeHistoryExecutor{output: historyLine(time.Now(), 0, "/usr/bin/job") + "\n"}); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+	if exec := cache.Get("/usr/bin/job"); exec == nil {
+		t.Fatal("expected execution after Refresh")
+	}
+
+	cache.Invalidate()
+
+	// After Invalidate the cache must behave as empty so the next Get forces
+	// a re-read through the current executor (which may be a different host).
+	if exec := cache.Get("/usr/bin/job"); exec != nil {
+		t.Fatalf("expected nil after Invalidate, got %+v", exec)
+	}
+}
+
 func TestNormalizeCommand(t *testing.T) {
 	tests := []struct {
 		input    string
