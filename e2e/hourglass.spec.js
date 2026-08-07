@@ -120,9 +120,11 @@ test.describe('Hourglass UI', () => {
     await row.locator('button[aria-label="Run now"]').click();
     await page.click('#nav-logs');
 
-    // History log records <millis>\t<exit>\t<base64(command)>. base64("echo logme")
-    // is "ZWNobyBsb2dtZQ==" — that proves the run was logged.
-    await expect(page.locator('#log-content')).toContainText('ZWNobyBsb2dtZQ==');
+    // History log records <millis>\t<exit>\t<base64(command)> on disk, but the
+    // logs view decodes each record into a human-readable row — the decoded
+    // command "echo logme" (base64 "ZWNobyBsb2dtZQ==") proves the run was
+    // logged AND rendered readably.
+    await expect(page.locator('#log-content')).toContainText('echo logme');
     await expect(page.locator('#log-path')).toContainText('.hourglass/history.log');
   });
 });

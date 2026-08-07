@@ -844,15 +844,54 @@ async function loadLogs() {
         document.getElementById('log-path').textContent = data.path || '';
 
         const el = document.getElementById('log-content');
-        const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+        // Entries render newest-first, so "auto-scroll" keeps the view pinned
+        // to the top (where the newest row lands) instead of the bottom.
+        const wasAtTop = el.scrollTop < 50;
 
-        el.textContent = data.content || 'No log entries yet.';
+        renderLogs(el, data);
 
-        if (document.getElementById('log-autoscroll').checked && wasAtBottom) {
-            el.scrollTop = el.scrollHeight;
+        if (document.getElementById('log-autoscroll').checked && wasAtTop) {
+            el.scrollTop = 0;
         }
     } catch (err) {
         console.error('Failed to load logs:', err);
         document.getElementById('log-content').textContent = 'Failed to load logs: ' + err.message;
     }
+}
+
+// renderLogs renders decoded, human-readable history entries (newest first).
+// Each raw history line is "<unix-millis>\t<exit-code>\t<base64(cmd)>"; the
+// backend decodes it so we can show the real command, a readable timestamp
+// and a status badge instead of the opaque base64 blob. If the log contains
+// nothing parseable (e.g. it was hand-edited), fall back to the raw content.
+function renderLogs(el, data) {
+    const entries = data.entries || [];
+    if (entries.length === 0) {
+        const raw = (data.content || '').trim();
+        el.innerHTML = raw
+            ? `<div class="log-empty">${escapeHtml(raw)}</div>`
+            : '<div class="log-empty">No log entries yet.</div>';
+        return;
+    }
+
+    el.innerHTML = entries.map((e) => {
+        const ok = e.exitCode === 0;
+        const status = ok
+            ? '<span class="log-status ok" title="Exit code 0">✓ 0</span>'
+            : `<span class="log-status fail" title="Exit code ${e.exitCode}">✗ ${e.exitCode}</span>`;
+        return `<div class="log-row">
+            <span class="log-time" title="${escapeHtml(e.timestamp)}">${escapeHtml(formatLogTime(e.timestamp))}</span>
+            ${status}
+            <code class="log-cmd">${escapeHtml(e.command)}</code>
+        </div>`;
+    }).join('');
+}
+
+// formatLogTime renders an RFC3339 timestamp as "YYYY-MM-DD HH:MM:SS" local
+// time — readable at a glance, unlike the raw unix-millis value on disk.
+function formatLogTime(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }

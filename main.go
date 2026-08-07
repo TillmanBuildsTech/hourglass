@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/TillmanBuildsTech/hourglass/connection"
@@ -644,6 +645,17 @@ func newLocalExecutor() cron.Executor {
 	return le
 }
 
+// logEntryJSON is one decoded, human-readable execution record returned by
+// GET /api/logs. The raw history log stores commands as base64 (so the shell
+// wrapper never has to quote arbitrary command text); the UI renders these
+// decoded fields instead of the opaque "<millis>	<exit>	<base64(cmd)>" lines.
+type logEntryJSON struct {
+	Timestamp string `json:"timestamp"`
+	ExitCode  int    `json:"exitCode"`
+	Status    string `json:"status"`
+	Command   string `json:"command"`
+}
+
 func handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -664,5 +676,23 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	logPath := cronManager.HistoryLogPath()
 
-	w.Write([]byte(toJSON(map[string]string{"content": content, "path": logPath})))
+	// Decode the raw records into human-readable entries, newest first.
+	// "content" is still included so callers that want the raw log (or a
+	// fallback when parsing yields nothing) have it.
+	execs := cron.ParseHistoryLog(content)
+	entries := make([]logEntryJSON, 0, len(execs))
+	for _, e := range execs {
+		entries = append(entries, logEntryJSON{
+			Timestamp: e.Timestamp.Format(time.RFC3339),
+			ExitCode:  e.ExitCode,
+			Status:    e.Status,
+			Command:   e.Command,
+		})
+	}
+
+	w.Write([]byte(toJSON(map[string]interface{}{
+		"path":    logPath,
+		"content": content,
+		"entries": entries,
+	})))
 }
