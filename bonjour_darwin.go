@@ -24,21 +24,13 @@ package main
 #include <dns_sd.h>
 #include <stdlib.h>
 
-// goRecordConflict is provided by the //export directive below — it must be
-// declared extern (not static) so the C compiler links it to the Go symbol.
+// Declarations only — the //export rule forbids DEFINITIONS in a preamble
+// (it is copied into two generated C files; definitions would duplicate
+// symbols). goRecordConflict is provided by the //export directive below;
+// recordConflictTrampoline is defined in bonjour_trampoline.c (compiled
+// once, real external symbol), so it can be passed as a callback.
 extern void goRecordConflict(DNSServiceRef, DNSRecordRef, DNSServiceFlags, DNSServiceErrorType, void*);
-
-// Trampoline so the C callback can call back into Go (cgo rule: a Go
-// function pointer must not be passed directly to C). static (internal
-// linkage) so it is not emitted as a duplicate external symbol when the
-// preamble is copied into both generated C files (the //export rule: a
-// preamble that uses //export must contain declarations, not definitions —
-// internal-linkage definitions are the exception that compiles cleanly).
-static void recordConflictTrampoline(DNSServiceRef sdRef, DNSRecordRef RecordRef,
-                                     DNSServiceFlags flags, DNSServiceErrorType errorCode,
-                                     void *context) {
-    goRecordConflict(sdRef, RecordRef, flags, errorCode, context);
-}
+extern void recordConflictTrampoline(DNSServiceRef, DNSRecordRef, DNSServiceFlags, DNSServiceErrorType, void*);
 */
 import "C"
 
@@ -96,11 +88,9 @@ func tryBonjourRegister(name string, ip net.IP, port int, secure bool) bool {
 		C.kDNSServiceClass_IN,
 		4, // rdlen
 		unsafe.Pointer(&rdata[0]),
-		120, // ttl seconds
-		// cgo wraps preamble functions as unsafe.Pointer fpvars; cast to the
-		// callback's function-pointer type (*[0]byte) as the docs require.
-		(*[0]byte)(C.recordConflictTrampoline), // callBack (logs async conflicts)
-		nil,                                    // context
+		120,                        // ttl seconds
+		C.recordConflictTrampoline, // callBack (logs async conflicts; defined in bonjour_trampoline.c)
+		nil,                        // context
 	)
 	if serr != C.kDNSServiceErr_NoError {
 		C.DNSServiceRefDeallocate(connRef)
