@@ -3,6 +3,7 @@ package cron
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -35,10 +36,42 @@ func (e *memExecutor) Execute(command string) (string, error) {
 	return "", nil
 }
 
-func TestNewManager(t *testing.T) {
+func TestLocalExecutorUsesCrontab(t *testing.T) {
 	m := NewManager()
 	if m == nil {
 		t.Error("NewManager returned nil")
+	}
+}
+
+func TestFileExecutorRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "crontab.txt")
+	e := NewFileExecutor(path)
+
+	// Empty (no file) behaves like "no crontab".
+	if _, err := e.Execute("crontab -l"); err == nil {
+		t.Error("expected error for empty crontab, got nil")
+	}
+
+	// Write via the same heredoc form WriteCrontab produces.
+	cmd := "crontab - << 'EOF'\n* * * * * /usr/bin/hello\nEOF"
+	if _, err := e.Execute(cmd); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	out, err := e.Execute("crontab -l")
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if !strings.Contains(out, "/usr/bin/hello") {
+		t.Errorf("expected job in read-back, got %q", out)
+	}
+
+	// Delete.
+	if _, err := e.Execute("crontab -r"); err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	if _, err := e.Execute("crontab -l"); err == nil {
+		t.Error("expected error after delete, got nil")
 	}
 }
 
@@ -274,5 +307,73 @@ func TestEmptyCrontab(t *testing.T) {
 	output := StringifyCrontab(entries)
 	if output != "" {
 		t.Errorf("Expected empty output from empty entries, got %q", output)
+	}
+}
+
+// recordingExecutor captures every executed command, so tests can assert that
+// Manager reads/writes go through the current executor (which is exactly what
+// makes SSH-remote connections work - the executor is the ssh.Client).
+type recordingExecutor struct {
+	commands []string
+	output   string
+	err      error
+}
+
+func (r *recordingExecutor) Execute(command string) (string, error) {
+	r.commands = append(r.commands, command)
+	return r.output, r.err
+}
+
+func TestReadHistoryLogRoutesThroughExecutor(t *testing.T) {
+	exec := &recordingExecutor{output: "1780000000000	0	abc\n"}
+	m := NewManagerWithExecutor(exec)
+
+	content, err := m.ReadHistoryLog()
+	if err != nil {
+		t.Fatalf("ReadHistoryLog failed: %v", err)
+	}
+	if content != exec.output {
+		t.Errorf("ReadHistoryLog = %q, want %q", content, exec.output)
+	}
+	if len(exec.commands) != 1 || !strings.Contains(exec.commands[0], "history.log") {
+		t.Errorf("ReadHistoryLog should read via the executor, got commands: %v", exec.commands)
+	}
+}
+
+func TestHistoryLogPathResolvesViaExecutor(t *testing.T) {
+	exec := &recordingExecutor{output: "/home/remoteuser"}
+	m := NewManagerWithExecutor(exec)
+
+	path := m.HistoryLogPath()
+	if path != "/home/remoteuser/.hourglass/history.log" {
+		t.Errorf("HistoryLogPath = %q, want %q", path, "/home/remoteuser/.hourglass/history.log")
+	}
+}
+
+func TestExecuteForHistoryWrapsAndRefreshes(t *testing.T) {
+	exec := &recordingExecutor{}
+	m := NewManagerWithExecutor(exec)
+
+	if _, err := m.ExecuteForHistory("/usr/bin/backup.sh"); err != nil {
+		t.Fatalf("ExecuteForHistory failed: %v", err)
+	}
+
+	// The command must be run wrapped (so a record lands in the history log
+	// and LastRun/LastStatus populate), and the cache must be re-read via the
+	// same executor afterwards.
+	var sawWrap, sawRead bool
+	for _, c := range exec.commands {
+		if strings.Contains(c, "history.log") && strings.Contains(c, "printf") {
+			sawWrap = true
+		}
+		if strings.Contains(c, "cat") && strings.Contains(c, "history.log") {
+			sawRead = true
+		}
+	}
+	if !sawWrap {
+		t.Errorf("ExecuteForHistory should run the wrapped (logging) command, got commands: %v", exec.commands)
+	}
+	if !sawRead {
+		t.Errorf("ExecuteForHistory should refresh history via the executor, got commands: %v", exec.commands)
 	}
 }

@@ -138,6 +138,40 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestInactiveEntryPreservesComment(t *testing.T) {
+	// Regression: toggling a job to inactive must not drop its comment/name.
+	entry := Entry{
+		Schedule: "* * * * *",
+		Command:  "/usr/bin/backup.sh",
+		Comment:  "Daily Backup",
+		Inactive: true,
+	}
+
+	out := StringifyCrontab([]Entry{entry})
+	want := "# * * * * * /usr/bin/backup.sh # Daily Backup"
+	if out != want {
+		t.Fatalf("StringifyCrontab inactive = %q, want %q", out, want)
+	}
+
+	parsed, err := ParseCrontab(out)
+	if err != nil {
+		t.Fatalf("ParseCrontab failed: %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(parsed))
+	}
+	p := parsed[0]
+	if !p.Inactive {
+		t.Error("expected parsed entry to be inactive")
+	}
+	if p.Comment != "Daily Backup" {
+		t.Errorf("Comment = %q, want %q", p.Comment, "Daily Backup")
+	}
+	if p.Schedule != "* * * * *" {
+		t.Errorf("Schedule = %q, want %q", p.Schedule, "* * * * *")
+	}
+}
+
 func TestEdgeCases(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -203,7 +203,11 @@ func StringifyCrontab(entries []Entry) string {
 	var lines []string
 	for _, e := range entries {
 		if e.Inactive {
-			lines = append(lines, "# "+e.Schedule+" "+escapePercent(e.Command))
+			line := "# " + e.Schedule + " " + escapePercent(e.Command)
+			if e.Comment != "" {
+				line += " # " + escapePercent(e.Comment)
+			}
+			lines = append(lines, line)
 		} else {
 			line := e.Schedule + " " + escapePercent(e.Command)
 			if e.Comment != "" {
