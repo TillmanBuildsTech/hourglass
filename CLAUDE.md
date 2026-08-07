@@ -109,7 +109,7 @@ The app version lives in the `VERSION` file at the repo root (embedded into the 
 ## Environment Variables (Optional)
 
 ```bash
-HOURGLASS_BIND=0.0.0.0:8080           # Bind address (default: 127.0.0.1:8080)
+HOURGLASS_BIND=0.0.0.0:8080           # Bind address (default: 0.0.0.0:8080; LAN-reachable so hourglass.local works out of the box)
 HOURGLASS_AUTH_USER=admin             # Basic auth username
 HOURGLASS_AUTH_PASS=secretpass        # Basic auth password
 ```

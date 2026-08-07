@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -259,4 +260,90 @@ func TestEnforceBindSecurity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEnsureCredentialsForBind covers the Home Assistant-style default: a
+// LAN-exposed instance with no configured credentials gets a random password
+// generated + persisted (and the same login is reused across restarts),
+// while loopback binds and explicit creds stay untouched.
+func TestEnsureCredentialsForBind(t *testing.T) {
+	t.Run("loopback stays auth-free", func(t *testing.T) {
+		os.Unsetenv("HOURGLASS_AUTH_USER")
+		os.Unsetenv("HOURGLASS_AUTH_PASS")
+		os.Unsetenv("HOURGLASS_ALLOW_INSECURE")
+		u, p, err := ensureCredentialsForBind("127.0.0.1:8080")
+		if err != nil {
+			t.Fatalf("ensureCredentialsForBind(loopback) err=%v", err)
+		}
+		if u != "" || p != "" {
+			t.Fatalf("loopback should stay auth-free, got user=%q pass=%q", u, p)
+		}
+	})
+
+	t.Run("lan bind generates and persists", func(t *testing.T) {
+		os.Unsetenv("HOURGLASS_AUTH_USER")
+		os.Unsetenv("HOURGLASS_AUTH_PASS")
+		os.Unsetenv("HOURGLASS_ALLOW_INSECURE")
+		t.Setenv("HOME", t.TempDir())
+
+		u1, p1, err := ensureCredentialsForBind("0.0.0.0:8080")
+		if err != nil {
+			t.Fatalf("ensureCredentialsForBind(0.0.0.0) err=%v", err)
+		}
+		if u1 != "admin" || len(p1) != 16 {
+			t.Fatalf("expected admin + 16-char password, got user=%q pass=%q", u1, p1)
+		}
+		// Credentials must be live in the environment for the auth middleware.
+		if os.Getenv("HOURGLASS_AUTH_USER") != "admin" || os.Getenv("HOURGLASS_AUTH_PASS") != p1 {
+			t.Fatalf("generated credentials not exported to env: user=%q pass=%q", os.Getenv("HOURGLASS_AUTH_USER"), os.Getenv("HOURGLASS_AUTH_PASS"))
+		}
+		// Persisted file must exist with the right perms.
+		path := filepath.Join(os.Getenv("HOME"), ".hourglass", autoCredentialsFile)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("credentials file not written: %v", err)
+		}
+		if !strings.Contains(string(data), "HOURGLASS_AUTH_PASS="+p1) {
+			t.Fatalf("credentials file missing password: %s", data)
+		}
+
+		// A second call must reuse the saved password (stable login).
+		u2, p2, err := ensureCredentialsForBind("0.0.0.0:8080")
+		if err != nil {
+			t.Fatalf("second ensureCredentialsForBind err=%v", err)
+		}
+		if u2 != u1 || p2 != p1 {
+			t.Fatalf("credentials changed across restarts: (%s,%s) -> (%s,%s)", u1, p1, u2, p2)
+		}
+	})
+
+	t.Run("explicit creds win", func(t *testing.T) {
+		t.Setenv("HOURGLASS_AUTH_USER", "bob")
+		t.Setenv("HOURGLASS_AUTH_PASS", "secret")
+		t.Setenv("HOME", t.TempDir())
+		u, p, err := ensureCredentialsForBind("0.0.0.0:8080")
+		if err != nil {
+			t.Fatalf("ensureCredentialsForBind err=%v", err)
+		}
+		if u != "bob" || p != "secret" {
+			t.Fatalf("explicit creds not honored: user=%q pass=%q", u, p)
+		}
+		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".hourglass", autoCredentialsFile)); err == nil {
+			t.Fatal("should not write credentials file when explicit creds are set")
+		}
+	})
+
+	t.Run("insecure opt-in skips generation", func(t *testing.T) {
+		os.Unsetenv("HOURGLASS_AUTH_USER")
+		os.Unsetenv("HOURGLASS_AUTH_PASS")
+		t.Setenv("HOURGLASS_ALLOW_INSECURE", "1")
+		t.Setenv("HOME", t.TempDir())
+		u, p, err := ensureCredentialsForBind("0.0.0.0:8080")
+		if err != nil {
+			t.Fatalf("ensureCredentialsForBind err=%v", err)
+		}
+		if u != "" || p != "" {
+			t.Fatalf("insecure opt-in should stay auth-free, got user=%q pass=%q", u, p)
+		}
+	})
 }

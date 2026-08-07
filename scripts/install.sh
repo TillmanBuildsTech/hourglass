@@ -103,7 +103,10 @@ EOF
     echo "Service started: systemctl status hourglass"
 else
     echo ""
-    echo "Run it with:  hourglass   (then open http://127.0.0.1:8080)"
+    echo "Run it with:  hourglass"
+    echo "Then open http://hourglass.local:8080 from any device on this LAN"
+    echo "(or http://localhost:8080 on this machine). First run generates a"
+    echo "password and prints the login — saved in ~/.hourglass/auth.env."
     if [ "$OS" = "darwin" ]; then
         echo "Run as a service:  brew install TillmanBuildsTech/tap/hourglass && brew services start hourglass"
     fi
