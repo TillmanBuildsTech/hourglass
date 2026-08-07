@@ -12,6 +12,12 @@ type Entry struct {
 	Command  string
 	Comment  string
 	Inactive bool
+	// Tracked is set by GetEntries before unwrapping: true when the raw
+	// crontab line carried the Hourglass history marker (i.e. the job was
+	// written by Hourglass and logs executions). The marker itself is stripped
+	// from Comment by unwrapEntry, so this flag is the only way to tell a
+	// tracked job from one installed outside Hourglass.
+	Tracked bool `json:"-"`
 }
 
 func ParseCrontab(text string) ([]Entry, error) {
@@ -70,6 +76,57 @@ var regexCronField = regexp.MustCompile(`^[\d\-\*\/,]+$`)
 
 var envLine = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\s*=`)
 
+
+// PreserveNonEntryLines extracts the crontab lines that are NOT cron entries
+// (environment variable assignments such as PATH=..., standalone comment
+// lines, and blank lines) so a write round-trip through WriteCrontab keeps
+// them. Without this, rewriting a crontab that sets e.g. PATH= drops the
+// assignment and silently breaks every job that relied on it.
+func PreserveNonEntryLines(text string) []string {
+	var preserved []string
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			preserved = append(preserved, "")
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			// Standalone comment (not a commented-out cron job).
+			commentedLine := strings.TrimSpace(trimmed[1:])
+			if !isValidCronLine(commentedLine) {
+				preserved = append(preserved, line)
+			}
+			continue
+		}
+		if envLine.MatchString(trimmed) {
+			preserved = append(preserved, line)
+		}
+	}
+	return preserved
+}
+
+// HasHgMarker reports whether the comment carries Hourglass's history-tracking
+// marker ([[hg:<base64>]]), i.e. whether the entry was written by Hourglass
+// and therefore logs executions to the history log. Only meaningful on RAW
+// (not yet unwrapped) entries — unwrapEntry strips the marker.
+func HasHgMarker(comment string) bool {
+	_, ok := extractHgMarker(comment)
+	return ok
+}
+
+// HasUntrackedActive reports whether any active (non-disabled) entry lacks
+// Hourglass history tracking. Such entries run but never record a
+// LastRun/LastStatus, because only wrapped commands append to the history
+// log. Callers can rewrite the crontab to wrap them. Entries must come from
+// GetEntries, which sets Tracked from the raw crontab line before unwrapping.
+func HasUntrackedActive(entries []Entry) bool {
+	for _, e := range entries {
+		if !e.Inactive && !e.Tracked {
+			return true
+		}
+	}
+	return false
+}
 
 func parseLine(line string) (*Entry, error) {
 	if strings.HasPrefix(line, "#") {

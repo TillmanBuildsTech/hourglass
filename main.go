@@ -188,6 +188,19 @@ func handleGetCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Jobs installed outside Hourglass (e.g. via the system crontab, or on a
+	// host that was never written through this UI) carry no history marker, so
+	// they run but never record LastRun/LastStatus. Wrap them on first read so
+	// they start reporting — best-effort: if the write fails the read still
+	// succeeds and the jobs simply stay untracked.
+	if cron.HasUntrackedActive(entries) {
+		if err := cronManager.WriteCrontab(entries); err != nil {
+			log.Printf("failed to wrap untracked cron jobs for history tracking: %v", err)
+		} else {
+			log.Printf("wrapped untracked active cron job(s) so they report LastRun/LastStatus")
+		}
+	}
+
 	apiEntries := make([]Entry, len(entries))
 	for i, e := range entries {
 		apiEntries[i] = Entry{
@@ -408,6 +421,12 @@ func handleSetActiveConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remember the previous active connection so a failed remote switch can
+	// roll back; otherwise connections.json would claim the remote is active
+	// while the executor still serves the previous host (and the UI, keeping
+	// its stale list, would show the wrong host's jobs with no way to tell).
+	previous := connManager.GetActiveID()
+
 	if err := connManager.SetActive(req.ID); err != nil {
 		http.Error(w, toJSON(APIError{err.Error()}), http.StatusBadRequest)
 		return
@@ -416,6 +435,7 @@ func handleSetActiveConnection(w http.ResponseWriter, r *http.Request) {
 	cfg := connManager.GetActive()
 	if cfg != nil && !cfg.IsLocal {
 		if err := switchToRemoteConnection(cfg); err != nil {
+			_ = connManager.SetActive(previous)
 			http.Error(w, toJSON(APIError{err.Error()}), http.StatusInternalServerError)
 			return
 		}

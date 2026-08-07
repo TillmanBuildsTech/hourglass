@@ -63,29 +63,39 @@ func hgMarker(command string) string {
 	return hgMarkerPrefix + base64.StdEncoding.EncodeToString([]byte(command)) + hgMarkerSuffix
 }
 
+// extractHgMarker returns the base64 payload of the Hourglass history marker
+// embedded in a comment ([[hg:<base64>]]), if present.
+func extractHgMarker(comment string) (string, bool) {
+	start := strings.Index(comment, hgMarkerPrefix)
+	if start == -1 {
+		return "", false
+	}
+	rest := comment[start+len(hgMarkerPrefix):]
+	end := strings.Index(rest, hgMarkerSuffix)
+	if end == -1 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
 // unwrapEntry restores the original Command (and strips the history
 // marker from Comment) for an entry previously wrapped by WriteCrontab.
 // Entries without the marker - e.g. ones added outside Hourglass - are
 // returned unchanged.
 func unwrapEntry(e Entry) Entry {
-	start := strings.Index(e.Comment, hgMarkerPrefix)
-	if start == -1 {
-		return e
-	}
-	rest := e.Comment[start+len(hgMarkerPrefix):]
-	end := strings.Index(rest, hgMarkerSuffix)
-	if end == -1 {
+	encoded, ok := extractHgMarker(e.Comment)
+	if !ok {
 		return e
 	}
 
-	encoded := rest[:end]
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return e
 	}
 
+	start := strings.Index(e.Comment, hgMarkerPrefix)
 	e.Command = string(decoded)
-	e.Comment = strings.TrimSpace(e.Comment[:start] + rest[end+len(hgMarkerSuffix):])
+	e.Comment = strings.TrimSpace(e.Comment[:start] + e.Comment[start+len(hgMarkerPrefix)+len(encoded)+len(hgMarkerSuffix):])
 	return e
 }
 
@@ -183,6 +193,11 @@ func (e *FileExecutor) Execute(command string) (string, error) {
 type Manager struct {
 	executor Executor
 	cache    *HistoryCache
+	// preserved holds non-entry crontab lines (env assignments like PATH=...,
+	// standalone comments, blank lines) captured on the last read, so a write
+	// round-trip re-emits them instead of silently dropping them. Populated by
+	// GetEntries, consumed by WriteCrontab.
+	preserved []string
 }
 
 func NewManager() *Manager {
@@ -199,8 +214,14 @@ func NewManagerWithExecutor(executor Executor) *Manager {
 	}
 }
 
+// SetExecutor swaps the host that reads/writes the crontab and history log.
+// The history cache is invalidated so the next lookup re-reads through the
+// new executor; without this, switching between local and a remote connection
+// could keep serving the previous host's LastRun/LastStatus for up to 30s
+// (until the background ticker refreshes).
 func (m *Manager) SetExecutor(executor Executor) {
 	m.executor = executor
+	m.cache.Invalidate()
 }
 
 func (m *Manager) ReadCrontab() (string, error) {
@@ -224,6 +245,16 @@ func (m *Manager) WriteCrontab(entries []Entry) error {
 	}
 
 	text := StringifyCrontab(wrapped)
+	// Re-emit non-entry lines (PATH=..., header comments) captured on the last
+	// read so rewriting never drops them.
+	if len(m.preserved) > 0 && text != "" {
+		text = strings.Join(m.preserved, "\n") + "\n" + text
+	} else if len(m.preserved) > 0 {
+		text = strings.Join(m.preserved, "\n")
+	}
+	// Drop trailing blank lines left by the file's final newline so repeated
+	// read/write round-trips don't accumulate empty lines.
+	text = strings.TrimRight(text, "\n")
 	cmd := fmt.Sprintf("crontab - << 'EOF'\n%s\nEOF", text)
 	_, err := m.executor.Execute(cmd)
 	return err
@@ -240,7 +271,13 @@ func (m *Manager) GetEntries() ([]Entry, error) {
 		return nil, fmt.Errorf("failed to parse crontab: %w", err)
 	}
 
+	m.preserved = PreserveNonEntryLines(text)
+
 	for i := range entries {
+		// Set Tracked from the RAW comment (with the marker still intact);
+		// unwrapEntry below strips the marker, which would otherwise make
+		// every job look untracked.
+		entries[i].Tracked = HasHgMarker(entries[i].Comment)
 		entries[i] = unwrapEntry(entries[i])
 	}
 
