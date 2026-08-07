@@ -1,6 +1,14 @@
-# Hourglass — Self-Hosted Crontab Manager
+# <img src="ui/src/icon.svg" width="34" height="34" alt="Hourglass icon"> Hourglass — Self-Hosted Crontab Manager
 
 **Hourglass** is a lightweight, self-hosted web UI for managing Linux cron jobs. See your scheduled tasks, view execution history, and add/edit/delete jobs without touching the command line.
+
+## Screenshots
+
+Dark mode with a few mock cron jobs (regenerate anytime with `bash scripts/screenshots.sh`):
+
+![Hourglass cron jobs view (dark mode)](docs/screenshots/hourglass-dark.png)
+
+![Hourglass logs view (dark mode)](docs/screenshots/logs-dark.png)
 
 ## Features
 
