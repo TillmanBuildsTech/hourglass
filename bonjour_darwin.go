@@ -22,7 +22,6 @@ package main
 
 /*
 #include <dns_sd.h>
-#include <arpa/inet.h>
 #include <stdlib.h>
 
 // Trampoline so the C callback can call back into Go (cgo rule: a Go
@@ -115,17 +114,17 @@ func tryBonjourRegister(name string, ip net.IP, port int, secure bool) bool {
 	var sRef C.DNSServiceRef
 	serr = C.DNSServiceRegister(
 		&sRef,
-		0,                         // flags: defaults (auto-rename on conflict)
-		0,                         // interfaceIndex: all interfaces
-		cinst,                     // name (instance)
-		creg,                      // regtype
-		nil,                       // domain: default (.local)
-		nil,                       // host: default hostname
-		C.htons(C.uint16_t(port)), // port — network byte order
-		0,                         // txtLen
-		nil,                       // txtRecord
-		nil,                       // callBack (NULL allowed for DNSServiceRegister)
-		nil,                       // context
+		0,     // flags: defaults (auto-rename on conflict)
+		0,     // interfaceIndex: all interfaces
+		cinst, // name (instance)
+		creg,  // regtype
+		nil,   // domain: default (.local)
+		nil,   // host: default hostname
+		C.uint16_t((uint16(port)>>8)|(uint16(port)<<8)), // port — network byte order (htons is a macro, unavailable to cgo)
+		0,   // txtLen
+		nil, // txtRecord
+		nil, // callBack (NULL allowed for DNSServiceRegister)
+		nil, // context
 	)
 	if serr != C.kDNSServiceErr_NoError {
 		log.Printf("mDNS: Bonjour service registration failed (%d); A record stays registered", int32(serr))
