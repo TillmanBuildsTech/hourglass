@@ -114,6 +114,9 @@ func main() {
 	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.FS(distFS))))
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/api/version", handleVersion)
+	http.HandleFunc("/api/auth/login", handleAuthLogin)
+	http.HandleFunc("/api/auth/me", handleAuthMe)
+	http.HandleFunc("/api/auth/logout", handleAuthLogout)
 	http.HandleFunc("/api/cron", handleCron)
 	http.HandleFunc("/api/cron/update", handleUpdateCron)
 	http.HandleFunc("/api/cron/execute", handleExecuteCron)
@@ -135,7 +138,7 @@ func main() {
 	startMDNS(addr)
 
 	log.Printf("Starting Hourglass v%s on %s", version(), addr)
-	if err := http.ListenAndServe(addr, maybeAuth(http.DefaultServeMux)); err != nil {
+	if err := http.ListenAndServe(addr, authMiddleware(http.DefaultServeMux)); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

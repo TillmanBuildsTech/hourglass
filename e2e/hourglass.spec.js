@@ -5,9 +5,13 @@
 // jobs. Because the backend is single-admin, tests are serial (workers:1) and
 // each uses unique job names to stay independent.
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
 
 const HOST = process.env.HG_HOST || '127.0.0.1';
 const PORT = process.env.HG_PORT || '18080';
+// Read VERSION dynamically so the assertion never goes stale after a bump.
+const VERSION = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim();
 
 async function addJob(page, { schedule, command, comment }) {
   await page.getByRole('button', { name: 'Add New Job' }).click();
@@ -21,7 +25,7 @@ test.describe('Hourglass UI', () => {
   test('loads the app and shows version + empty cron list (loopback, no auth)', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle('Hourglass — Crontab Manager');
-    await expect(page.locator('#app-version')).toHaveText('v0.10.1');
+    await expect(page.locator('#app-version')).toHaveText('v' + VERSION);
     await expect(page.getByRole('heading', { name: 'Cron Jobs' })).toBeVisible();
     await expect(page.locator('#jobs-table .empty-cell')).toContainText('No cron jobs yet');
   });

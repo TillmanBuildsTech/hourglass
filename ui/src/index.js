@@ -58,7 +58,12 @@ document.getElementById('connections-toggle').addEventListener('click', openSide
 document.getElementById('connections-close').addEventListener('click', closeSidebar);
 
 // ── Notifications ──────────────────────────────────────────────────────────
+function isLoginVisible() {
+    return !document.getElementById('view-login').classList.contains('hidden');
+}
+
 function showNotification(msg, type) {
+    if (isLoginVisible()) return; // don't flash app errors behind the login view
     const banner = document.getElementById('error-banner');
     const text   = document.getElementById('error-text');
     text.textContent = msg;
@@ -78,6 +83,118 @@ function showError(msg) {
 function clearError() {
     document.getElementById('error-banner').classList.add('hidden');
 }
+
+// ── Auth / Login ───────────────────────────────────────────────────────────
+let authUser = '';
+let authEnabled = false;
+
+function showLogin() {
+    document.getElementById('view-login').classList.remove('hidden');
+    document.getElementById('auth-footer').classList.add('hidden');
+    document.getElementById('login-username').focus();
+}
+
+function hideLogin() {
+    document.getElementById('view-login').classList.add('hidden');
+}
+
+function renderAuthChip() {
+    const footer = document.getElementById('auth-footer');
+    if (!authEnabled) {
+        footer.classList.add('hidden');
+        return;
+    }
+    footer.classList.remove('hidden');
+    document.getElementById('auth-username').textContent = authUser;
+    document.getElementById('auth-avatar').textContent  = (authUser || '?').charAt(0).toUpperCase();
+}
+
+// initAuth checks the session and shows the login view when authentication is
+// required. Returns true when the app may load data, false while logged out.
+async function initAuth() {
+    try {
+        const resp = await fetch('/api/auth/me');
+        if (resp.status === 401) {
+            authEnabled = true;
+            authUser = '';
+            renderAuthChip();
+            showLogin();
+            return false;
+        }
+        const data = await resp.json();
+        authEnabled = !!data.user;
+        authUser = data.user || '';
+        renderAuthChip();
+        if (authEnabled) hideLogin();
+        return true;
+    } catch (err) {
+        // Backend unreachable — let the app try to load; errors will surface.
+        console.error('Failed to check auth:', err);
+        return true;
+    }
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn   = document.getElementById('login-submit');
+    const errEl = document.getElementById('login-error');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+        const resp = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: document.getElementById('login-username').value,
+                password: document.getElementById('login-password').value
+            })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data.ok) {
+            authEnabled = true;
+            authUser = data.user || document.getElementById('login-username').value;
+            renderAuthChip();
+            hideLogin();
+            document.getElementById('login-password').value = '';
+            initConnections();
+            loadJobs();
+            return;
+        }
+        errEl.textContent = data.error || 'Invalid username or password';
+        errEl.classList.remove('hidden');
+    } catch (err) {
+        errEl.textContent = 'Connection failed';
+        errEl.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+    }
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+        console.error('Logout request failed:', err);
+    }
+    authUser = '';
+    showLogin();
+});
+
+// Global 401 guard: any API call failing with 401 means the session is gone
+// (or never existed) — drop back to the login view. Auth endpoints are
+// excluded: /api/auth/me legitimately returns 401 while logged out and a
+// failed /api/auth/login must show its own inline error.
+const _origFetch = window.fetch;
+window.fetch = async function (...args) {
+    const res = await _origFetch.apply(this, args);
+    if (res.status === 401) {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+        if (!url.includes('/api/auth/')) showLogin();
+    }
+    return res;
+};
 
 // ── Cron Help Popup ────────────────────────────────────────────────────────
 function openCronPopup() {
@@ -663,8 +780,14 @@ document.getElementById('macos-banner-dismiss').addEventListener('click', () => 
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 initVersion();
-initConnections();
-loadJobs();
+// Check the session first: when auth is required the app stays behind the
+// login view until a successful sign-in (see Auth / Login above).
+initAuth().then((authed) => {
+    if (authed) {
+        initConnections();
+        loadJobs();
+    }
+});
 
 // ── Home / brand navigation ────────────────────────────────────────────────
 // goHome(): back to the cron jobs list for the current connection. Used by
@@ -693,6 +816,7 @@ document.getElementById('nav-logs').addEventListener('click', () => switchView('
 // Polling: jobs every 30s, logs every 5s when active
 let _lastView = 'jobs';
 setInterval(() => {
+    if (isLoginVisible()) return; // paused while signed out
     const v = document.getElementById('view-jobs').classList.contains('hidden') ? 'other' : 'jobs';
     if (v === 'jobs') loadJobs();
     if (!document.getElementById('view-logs').classList.contains('hidden')) loadLogs();
