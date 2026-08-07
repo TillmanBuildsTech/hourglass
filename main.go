@@ -61,6 +61,7 @@ func main() {
 
 	showVersion := flag.Bool("version", false, "print the Hourglass version and exit")
 	mcpMode := flag.Bool("mcp", false, "run as an MCP (Model Context Protocol) stdio server for AI agent integration, instead of the web UI")
+	installCA := flag.Bool("install-ca", false, "generate the local TLS CA (if needed) and install it into the OS trust store, then exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -111,6 +112,14 @@ func main() {
 		return
 	}
 
+	if *installCA {
+		if err := runInstallCA(); err != nil {
+			log.Fatalf("CA install failed: %v", err)
+		}
+		fmt.Println("Hourglass local CA is installed and trusted. Restart Hourglass to serve HTTPS.")
+		return
+	}
+
 	distFS, _ := fs.Sub(uiFS, "ui/dist")
 	// .webmanifest isn't in Go's built-in MIME table; Chrome requires a JSON
 	// manifest MIME type or it ignores the web app manifest.
@@ -139,10 +148,32 @@ func main() {
 		log.Fatalf("Refusing to start: %v", err)
 	}
 
-	startMDNS(addr)
+	// Local HTTPS: generates a per-machine root CA on first run and
+	// installs it into the OS trust store so https://hourglass.local
+	// shows a valid lock (see tls.go — public CAs can't issue for .local).
+	// Returns nil when TLS is off, or serveTLS=false to fall back to HTTP.
+	tlsSetup := setupTLS()
+	secure := tlsSetup != nil && tlsSetup.serveTLS
+	if tlsSetup != nil {
+		// The root CA cert is public material — expose it so other devices
+		// can fetch and trust it to get a valid lock from their browsers too.
+		http.HandleFunc("/ca.pem", handleCAPEM(tlsSetup.caFile))
+	}
+	startMDNS(addr, secure)
 
-	log.Printf("Starting Hourglass v%s on %s", version(), addr)
-	if err := http.ListenAndServe(addr, authMiddleware(http.DefaultServeMux)); err != nil {
+	scheme := "http"
+	if secure {
+		scheme = "https"
+	}
+	log.Printf("Starting Hourglass v%s on %s (%s)", version(), addr, scheme)
+	handler := authMiddleware(http.DefaultServeMux)
+	if secure {
+		if err := http.ListenAndServeTLS(addr, tlsSetup.certFile, tlsSetup.keyFile, handler); err != nil {
+			log.Fatalf("Server failed: %v", err)
+		}
+		return
+	}
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
