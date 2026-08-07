@@ -617,6 +617,45 @@ table.jobs-table {
 
 .job-actions-cell { text-align: right; white-space: nowrap; }
 .action-group { display: inline-flex; align-items: center; gap: 1px; }
+
+/* ── Running job: pending-execution loading bar ── */
+/* The /api/cron/execute request stays pending until the job finishes, so the
+   row shows a gold→green bar flush to its bottom while it's in flight. The
+   row is position:relative so the bar can span the full row width; a subtle
+   gradient wash on the cells makes the whole row read as "busy". */
+.job-row.running { position: relative; }
+.job-row.running td {
+  background: linear-gradient(90deg, rgba(200,168,71,.06), rgba(34,197,94,.06));
+}
+.job-run-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--gold), var(--green));
+  box-shadow: 0 0 8px rgba(200,168,71,.4);
+}
+.job-run-bar span {
+  position: absolute;
+  top: 0; bottom: 0; left: -45%;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent);
+  animation: job-run-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes job-run-shimmer {
+  0%   { left: -45%; }
+  100% { left: 100%; }
+}
+.job-row.running .btn-icon.run:disabled {
+  color: var(--gold);
+  cursor: default;
+  animation: job-run-pulse 1.2s ease-in-out infinite;
+}
+@keyframes job-run-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
 .btn-icon {
   display: inline-flex;
   align-items: center;

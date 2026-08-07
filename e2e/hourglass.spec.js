@@ -54,6 +54,28 @@ test.describe('Hourglass UI', () => {
     await expect(row.locator('.job-lastrun')).not.toHaveText('Never');
   });
 
+  test('shows a loading bar on the row while the run request is pending', async ({ page }) => {
+    await page.goto('/');
+    // A slow command keeps /api/cron/execute pending long enough to observe
+    // the row-level loading bar (gold→green bar flush to the row bottom).
+    await addJob(page, { schedule: '* * * * *', command: 'sleep 2', comment: 'Slowpoke' });
+
+    const row = page.locator('tr.job-row', { hasText: 'Slowpoke' });
+    await row.locator('button[aria-label="Run now"]').click();
+
+    // While the request is in flight: the row is marked running, the bar is
+    // rendered, and the play button is disabled (double-click guard).
+    await expect(row).toHaveClass(/running/);
+    await expect(row.locator('.job-run-bar')).toBeVisible();
+    await expect(row.locator('button[aria-label="Run now"]')).toBeDisabled();
+
+    // Once the request settles: bar gone, button re-enabled, status recorded.
+    await expect(row).not.toHaveClass(/running/);
+    await expect(row.locator('.job-run-bar')).toHaveCount(0);
+    await expect(row.locator('button[aria-label="Run now"]')).toBeEnabled();
+    await expect(row.locator('.job-status .status-badge')).toHaveText('✓');
+  });
+
   test('Run now of a failing command shows failure status', async ({ page }) => {
     await page.goto('/');
     await addJob(page, { schedule: '* * * * *', command: '/bin/false', comment: 'Fails' });
