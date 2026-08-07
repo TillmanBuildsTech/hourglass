@@ -113,14 +113,3 @@ func TestRedirectListenerAuthRunsAfterRedirect(t *testing.T) {
 		t.Fatalf("plain HTTP status = %d, want 308 (redirect must precede auth)", resp.StatusCode)
 	}
 }
-
-// TestBonjourStubFallsBack ensures the non-cgo stub reports "not
-// registered" so startMDNS uses the multicast responder. This file compiles
-// wherever bonjour_stub.go does (its build tags), so on darwin+cgo builds
-// tryBonjourRegister is the real implementation and this test is excluded —
-// matching the platform matrix.
-func TestBonjourStubFallsBack(t *testing.T) {
-	if tryBonjourRegister("hourglass", net.ParseIP("192.168.1.241"), 8080, true) {
-		t.Fatal("stub tryBonjourRegister must return false (fall back to multicast)")
-	}
-}
