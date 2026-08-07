@@ -103,11 +103,95 @@ type Executor interface {
 	Execute(command string) (string, error)
 }
 
-type LocalExecutor struct{}
+// LocalExecutor reads/writes the system crontab via the `crontab` command.
+// By default it operates on the crontab of the user the Hourglass process
+// runs as. When User is set (via HOURGLASS_CRONTAB_USER), it targets that
+// user's crontab instead using `crontab -u <user>` — useful when Hourglass
+// runs as root (e.g. a launchd/systemd service) but should manage the
+// logged-in user's crontab (macOS: root's crontab is usually empty while
+// the real jobs live under the console user's account). Requires root.
+type LocalExecutor struct {
+	// User is the crontab owner to manage. Empty means the process user.
+	User string
+	// home is the resolved home directory of User (empty when User == "" or
+	// the user can't be resolved); history/log commands run with HOME set to
+	// it so LastRun/LastStatus and the logs page read the right file.
+	home string
+}
+
+func (e *LocalExecutor) resolveHome() {
+	if e.User == "" || e.home != "" {
+		return
+	}
+	// Usernames on Linux/macOS are restricted to [a-zA-Z0-9_.-]; validate so
+	// the value can be embedded in a shell command unquoted (single-quoting
+	// would defeat tilde expansion: ~'root' stays literal in POSIX sh).
+	if !isValidUsername(e.User) {
+		return
+	}
+	// Tilde expansion resolves via the system user database, which works on
+	// both Linux (/etc/passwd) and macOS (Directory Services) without cgo.
+	out, err := exec.Command("sh", "-c", "printf '%s' ~"+e.User).Output()
+	if err != nil {
+		return
+	}
+	h := strings.TrimSpace(string(out))
+	if h != "" && h != "~"+e.User {
+		e.home = h
+	}
+}
+
+// isValidUsername reports whether s looks like a POSIX username: 1-32 chars
+// of [a-zA-Z0-9_.-], not starting with '-'. Both Linux and macOS enforce
+// this for crontab owners.
+func isValidUsername(s string) bool {
+	if s == "" || len(s) > 32 || s[0] == '-' {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// env returns the environment for shell commands, overriding HOME with the
+// managed user's home so history/log paths resolve to that user's files.
+func (e *LocalExecutor) env() []string {
+	if e.home == "" {
+		return os.Environ()
+	}
+	env := []string{}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "HOME=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "HOME="+e.home)
+}
 
 func (e *LocalExecutor) Execute(command string) (string, error) {
-	if command == "crontab -l" {
-		cmd := exec.Command("crontab", "-l")
+	readCrontab := command == "crontab -l"
+
+	if e.User != "" {
+		e.resolveHome()
+		// Rewrite every crontab invocation to target the configured user:
+		//   crontab -l            -> crontab -u <user> -l
+		//   crontab -r            -> crontab -u <user> -r
+		//   crontab - << 'EOF'…   -> crontab -u <user> - << 'EOF'…
+		command = strings.Replace(command, "crontab -", "crontab -u "+shellQuote(e.User)+" -", 1)
+	}
+
+	if readCrontab {
+		args := []string{"-l"}
+		if e.User != "" {
+			args = []string{"-u", e.User, "-l"}
+		}
+		cmd := exec.Command("crontab", args...)
+		cmd.Env = e.env()
 		output, err := cmd.Output()
 		if err != nil {
 			if strings.Contains(err.Error(), "exit status 1") {
@@ -120,6 +204,7 @@ func (e *LocalExecutor) Execute(command string) (string, error) {
 
 	if strings.HasPrefix(command, "crontab -") {
 		cmd := exec.Command("sh", "-c", command)
+		cmd.Env = e.env()
 		if err := cmd.Run(); err != nil {
 			return "", fmt.Errorf("failed to write crontab: %w", err)
 		}
@@ -127,6 +212,7 @@ func (e *LocalExecutor) Execute(command string) (string, error) {
 	}
 
 	cmd := exec.Command("sh", "-c", command)
+	cmd.Env = e.env()
 	output, err := cmd.Output()
 	return string(output), err
 }

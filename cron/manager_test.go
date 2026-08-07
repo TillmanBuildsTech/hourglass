@@ -3,7 +3,9 @@ package cron
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,6 +43,97 @@ func TestLocalExecutorUsesCrontab(t *testing.T) {
 	m := NewManager()
 	if m == nil {
 		t.Error("NewManager returned nil")
+	}
+}
+
+// TestLocalExecutorUserTargetsCrontab verifies that a LocalExecutor with User
+// set rewrites crontab invocations to target that user via `crontab -u
+// <user>` — the mechanism behind HOURGLASS_CRONTAB_USER (e.g. a root-run
+// instance on macOS that should manage the logged-in user's crontab instead
+// of root's empty one). A fake `crontab` script on PATH records the argv it
+// receives so no real system crontab is touched.
+func TestLocalExecutorUserTargetsCrontab(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.log")
+	script := filepath.Join(dir, "crontab")
+	// Fake crontab: append argv to argsFile, exit 0.
+	content := "#!/bin/sh\necho \"$@\" >> \"" + argsFile + "\"\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake crontab: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	readArgs := func() []string {
+		data, err := os.ReadFile(argsFile)
+		if err != nil {
+			return nil
+		}
+		return strings.Fields(string(data))
+	}
+
+	e := &LocalExecutor{User: "alice"}
+
+	// Read: must become `crontab -u alice -l`.
+	if _, err := e.Execute("crontab -l"); err != nil {
+		t.Fatalf("Execute(crontab -l) failed: %v", err)
+	}
+	if got := readArgs(); len(got) != 3 || got[0] != "-u" || got[1] != "alice" || got[2] != "-l" {
+		t.Errorf("crontab -l args = %v, want [-u alice -l]", got)
+	}
+
+	// Write: heredoc form must become `crontab -u alice - << 'EOF'...`.
+	os.Remove(argsFile)
+	if _, err := e.Execute("crontab - << 'EOF'\n* * * * * /bin/true\nEOF"); err != nil {
+		t.Fatalf("Execute(write) failed: %v", err)
+	}
+	if got := readArgs(); len(got) != 3 || got[0] != "-u" || got[1] != "alice" || got[2] != "-" {
+		t.Errorf("crontab write args = %v, want [-u alice -]", got)
+	}
+
+	// Delete: must become `crontab -u alice -r`.
+	os.Remove(argsFile)
+	if _, err := e.Execute("crontab -r"); err != nil {
+		t.Fatalf("Execute(crontab -r) failed: %v", err)
+	}
+	if got := readArgs(); len(got) != 3 || got[0] != "-u" || got[1] != "alice" || got[2] != "-r" {
+		t.Errorf("crontab -r args = %v, want [-u alice -r]", got)
+	}
+
+	// Without a User, commands pass through untouched.
+	os.Remove(argsFile)
+	plain := &LocalExecutor{}
+	if _, err := plain.Execute("crontab -l"); err != nil {
+		t.Fatalf("Execute(crontab -l) plain failed: %v", err)
+	}
+	if got := readArgs(); len(got) != 1 || got[0] != "-l" {
+		t.Errorf("plain crontab -l args = %v, want [-l]", got)
+	}
+}
+
+// TestLocalExecutorUserOverridesHome verifies that when a target user
+// resolves to a real home directory, shell commands (history/log reads) run
+// with HOME pointed at that user's home rather than the process user's.
+func TestLocalExecutorUserOverridesHome(t *testing.T) {
+	// Use the current user: `~<user>` always resolves to their home.
+	cur, err := user.Current()
+	if err != nil {
+		t.Skipf("cannot resolve current user: %v", err)
+	}
+	e := &LocalExecutor{User: cur.Username}
+	e.resolveHome()
+	if e.home == "" {
+		t.Fatal("resolveHome returned empty home for current user")
+	}
+
+	env := e.env()
+	var gotHome string
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "HOME=") {
+			gotHome = strings.TrimPrefix(kv, "HOME=")
+		}
+	}
+	if gotHome != e.home {
+		t.Errorf("env HOME = %q, want %q", gotHome, e.home)
 	}
 }
 

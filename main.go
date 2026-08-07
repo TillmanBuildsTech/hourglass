@@ -141,7 +141,21 @@ func main() {
 
 	addr := os.Getenv("HOURGLASS_BIND")
 	if addr == "" {
-		addr = "127.0.0.1:8080"
+		// Default is LAN-reachable so hourglass.local works out of the box
+		// from any device (the Home Assistant model). Loopback stays
+		// available via an explicit HOURGLASS_BIND=127.0.0.1:8080. Credentials
+		// are auto-generated + printed on first run when exposed (see
+		// ensureCredentialsForBind below), so the default is never an open
+		// server.
+		addr = "0.0.0.0:8080"
+	}
+
+	// LAN-exposed instances must be protected: if no credentials are
+	// configured, generate + persist a random password (printed below) so the
+	// default install is usable AND secure. Loopback binds stay auth-free.
+	authUser, authPass, err := ensureCredentialsForBind(addr)
+	if err != nil {
+		log.Fatalf("Refusing to start: %v", err)
 	}
 
 	if err := enforceBindSecurity(addr); err != nil {
@@ -166,6 +180,10 @@ func main() {
 		scheme = "https"
 	}
 	log.Printf("Starting Hourglass v%s on %s (%s)", version(), addr, scheme)
+	if authUser != "" {
+		log.Printf("Login: %s / %s (saved in ~/.hourglass/auth.env)", authUser, authPass)
+		log.Printf("Reachable on your LAN at %s://hourglass.local:%s", scheme, portOf(addr))
+	}
 	handler := authMiddleware(http.DefaultServeMux)
 	if secure {
 		if err := http.ListenAndServeTLS(addr, tlsSetup.certFile, tlsSetup.keyFile, handler); err != nil {
@@ -611,12 +629,19 @@ func switchToRemoteConnection(cfg *connection.Config) error {
 // operation that is LocalExecutor (the system crontab). When
 // HOURGLASS_CRONTAB_FILE is set it returns a file-backed executor so isolated
 // E2E/integration runs can add/edit/delete/toggle jobs without touching real
-// cron jobs.
+// cron jobs. When HOURGLASS_CRONTAB_USER is set, the local executor manages
+// that user's crontab (`crontab -u <user>`) instead of the process user's —
+// e.g. a root-run service (launchd/systemd) on macOS that should show the
+// logged-in user's jobs rather than root's usually-empty crontab.
 func newLocalExecutor() cron.Executor {
 	if file := os.Getenv("HOURGLASS_CRONTAB_FILE"); file != "" {
 		return cron.NewFileExecutor(file)
 	}
-	return &cron.LocalExecutor{}
+	le := &cron.LocalExecutor{}
+	if user := os.Getenv("HOURGLASS_CRONTAB_USER"); user != "" {
+		le.User = user
+	}
+	return le
 }
 
 func handleLogs(w http.ResponseWriter, r *http.Request) {

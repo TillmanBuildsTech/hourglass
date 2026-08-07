@@ -155,13 +155,15 @@ brew services start hourglass
 ```
 
 The formula runs Hourglass as a launchd agent (`keep_alive`, logs in
-`$(brew --prefix)/var/log/hourglass.log`). It binds `127.0.0.1:8080` by
-default — safe, no credentials needed. To expose it on your LAN at
-`http://hourglass.local:8080`, set `HOURGLASS_BIND=0.0.0.0:8080` plus
-`HOURGLASS_AUTH_USER`/`HOURGLASS_AUTH_PASS` in
-`~/Library/LaunchAgents/homebrew.mxcl.hourglass.plist`, then
-`brew services restart hourglass` (Hourglass refuses to serve on
-non-loopback binds without credentials).
+`$(brew --prefix)/var/log/hourglass.log`). By default it binds
+`0.0.0.0:8080` and advertises itself over mDNS, so it is immediately
+reachable at `http://hourglass.local:8080` from any device on your LAN.
+On first run a random password is generated and printed to the log
+(saved in `~/.hourglass/auth.env`) — the same Home Assistant-style
+zero-config model the Linux packages use. If you prefer loopback-only,
+set `HOURGLASS_BIND=127.0.0.1:8080` in
+`~/Library/LaunchAgents/homebrew.mxcl.hourglass.plist` (no credentials
+needed for loopback), then `brew services restart hourglass`.
 
 ### LAN access & mDNS (both platforms)
 
@@ -276,20 +278,23 @@ curl http://localhost:8080/api/version
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HOURGLASS_BIND` | `127.0.0.1:8080` | Server bind address |
+| `HOURGLASS_BIND` | `0.0.0.0:8080` | Server bind address. LAN-reachable by default so `hourglass.local` works out of the box; use `127.0.0.1:8080` for loopback-only |
 | `HOURGLASS_AUTH_USER` | (none) | Basic auth username. **Required for non-loopback binds** |
 | `HOURGLASS_AUTH_PASS` | (none) | Basic auth password. **Required for non-loopback binds** |
 | `HOURGLASS_ALLOW_INSECURE` | (none) | `1` serves without auth on non-loopback binds (dangerous — explicit opt-in only) |
 | `HOURGLASS_MDNS` | `1` | Advertise `hourglass.local` over mDNS/Bonjour (skipped on loopback binds; `0` disables) |
 | `HOURGLASS_MDNS_NAME` | `hourglass` | mDNS hostname (the `hourglass` in `hourglass.local`) |
 | `HOURGLASS_TLS` | `auto` | Local HTTPS mode: `auto`, `1` (force), `0` (off) |
+| `HOURGLASS_CRONTAB_USER` | (none) | Manage a **specific user's** crontab via `crontab -u <user>` (requires root). Set this when the Hourglass process runs as root (e.g. a launchd/systemd service) but the jobs live under another account — classic macOS setup where root's crontab is empty but the console user's has all the jobs. History/log paths follow the target user's home. |
 
 > **Security:** The web UI can execute arbitrary shell commands (Run now,
-> cron writes). Hourglass **refuses to start** on a non-loopback bind
-> (`0.0.0.0` or a LAN IP) unless `HOURGLASS_AUTH_USER` and
-> `HOURGLASS_AUTH_PASS` are both set — an unauthenticated LAN-accessible
-> instance is a remote code execution hole. Bind to `127.0.0.1` to skip
-> credentials, or set `HOURGLASS_ALLOW_INSECURE=1` to explicitly opt out.
+> cron writes). Hourglass **never starts unauthenticated on a non-loopback
+> bind** (`0.0.0.0` or a LAN IP): if `HOURGLASS_AUTH_USER`/`HOURGLASS_AUTH_PASS`
+> are not set, a random password is generated on first run, saved to
+> `~/.hourglass/auth.env` (mode 0600), and printed at startup — so the
+> default LAN install is both zero-config and protected. Set
+> `HOURGLASS_ALLOW_INSECURE=1` to explicitly opt out (dangerous: an
+> unauthenticated LAN-accessible instance is a remote code execution hole).
 
 ### HTTPS for `hourglass.local` (no more browser warnings)
 
@@ -402,6 +407,33 @@ macOS requires Full Disk Access for crontab operations.
 1. Open System Settings → Privacy & Security → Full Disk Access
 2. Add your terminal application (Terminal.app, iTerm2, etc.)
 3. Restart Hourglass
+
+### Table shows only remote jobs, or is empty while `crontab -e` shows jobs
+
+Hourglass displays **one source of truth at a time**: whatever the active
+connection is — Local, or the last remote connection you connected to. It
+does not merge local + remote jobs.
+
+1. **Check the "Connected:" pill in the header.** If it shows a remote label
+   (e.g. a Coolify host), the table is showing *that* machine's crontab —
+   your local jobs are not being ignored, they're just not the active source.
+   Open the Connection Manager sidebar and click **Connect** on the *Local*
+   card (or the `Connect` button next to Local in the sidebar) to switch back.
+2. **Local shows empty but `crontab -e` (as your user) shows jobs?** The
+   Hourglass process is probably running as a different user than the one
+   whose crontab has the jobs. `crontab -l` only ever returns the crontab of
+   the user the *process* runs as — on macOS that's the console user for
+   `brew services`, but **root if you started Hourglass with `sudo`** (root's
+   crontab is empty by default). Fix: run Hourglass as your user, or keep it
+   as root and set `HOURGLASS_CRONTAB_USER=<your-username>` so Hourglass
+   reads *your* crontab via `crontab -u <user>` (requires root, so it works
+   with launchd/systemd services too):
+   ```bash
+   HOURGLASS_CRONTAB_USER=macuser ./hourglass
+   ```
+3. **A saved remote connection keeps coming back?** Hourglass restores the
+   last active connection on startup by design. Switch back to Local once and
+   it stays Local until you connect to a remote again.
 
 ## Limitations
 
