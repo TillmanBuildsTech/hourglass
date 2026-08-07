@@ -22,7 +22,18 @@ package main
 
 /*
 #include <dns_sd.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
+
+// Trampoline so the C callback can call back into Go (cgo rule: a Go
+// function pointer must not be passed directly to C).
+static void goRecordConflict(DNSServiceRef, DNSRecordRef, DNSServiceFlags, DNSServiceErrorType, void*);
+
+static void recordConflictTrampoline(DNSServiceRef sdRef, DNSRecordRef RecordRef,
+                                     DNSServiceFlags flags, DNSServiceErrorType errorCode,
+                                     void *context) {
+    goRecordConflict(sdRef, RecordRef, flags, errorCode, context);
+}
 */
 import "C"
 
@@ -37,15 +48,28 @@ import (
 // deallocating the ref would unregister the records.
 var bonjourRefs []C.DNSServiceRef
 
+// bonjourName remembers the advertised name for the async conflict callback
+// (cgo cannot safely pass a Go string through the C context pointer, and
+// only one name is registered per process).
+var bonjourName string
+
 // tryBonjourRegister registers <name>.local as an A record plus the
 // Hourglass service (_https/_http._tcp) with macOS mDNSResponder, so the
 // name resolves on the host itself and on the LAN. Returns true when
 // registration was accepted; false (logged) when it can't be done — the
 // caller then falls back to the multicast responder.
 func tryBonjourRegister(name string, ip net.IP, port int, secure bool) bool {
+	bonjourName = name
 	ip4 := ip.To4()
 	if ip4 == nil {
 		log.Printf("mDNS: Bonjour registration skipped: %s is not an IPv4 address", ip)
+		return false
+	}
+
+	// A connected DNSServiceRef is required for DNSServiceRegisterRecord.
+	var connRef C.DNSServiceRef
+	if serr := C.DNSServiceCreateConnection(&connRef); serr != C.kDNSServiceErr_NoError {
+		log.Printf("mDNS: Bonjour could not create a connection (%d); using multicast responder", int32(serr))
 		return false
 	}
 
@@ -56,21 +80,23 @@ func tryBonjourRegister(name string, ip net.IP, port int, secure bool) bool {
 	var rdata [4]byte
 	copy(rdata[:], ip4)
 
-	var aRef C.DNSServiceRef
+	var recRef C.DNSRecordRef
 	serr := C.DNSServiceRegisterRecord(
-		&aRef,
-		0,     // flags
-		0,     // interfaceIndex: all interfaces
-		cname, // fullname
+		connRef,                  // connected DNSServiceRef (by value)
+		&recRef,                  // DNSRecordRef output
+		C.kDNSServiceFlagsUnique, // we own this name
+		0,                        // interfaceIndex: all interfaces
+		cname,                    // fullname
 		C.kDNSServiceType_A,
 		C.kDNSServiceClass_IN,
 		4, // rdlen
 		unsafe.Pointer(&rdata[0]),
-		120, // ttl seconds
-		nil, // callBack (optional)
-		nil, // context
+		120,                        // ttl seconds
+		C.recordConflictTrampoline, // callBack (logs async conflicts)
+		nil,                        // context
 	)
 	if serr != C.kDNSServiceErr_NoError {
+		C.DNSServiceRefDeallocate(connRef)
 		log.Printf("mDNS: Bonjour could not register %s.local (%d); using multicast responder", name, int32(serr))
 		return false
 	}
@@ -89,32 +115,43 @@ func tryBonjourRegister(name string, ip net.IP, port int, secure bool) bool {
 	var sRef C.DNSServiceRef
 	serr = C.DNSServiceRegister(
 		&sRef,
-		0,     // flags
-		0,     // interfaceIndex: all interfaces
-		cinst, // name (instance)
-		creg,  // regtype
-		nil,   // domain: default (.local)
-		nil,   // host: default hostname
-		C.uint16_t(port),
-		0,   // txtLen
-		nil, // txtRecord
-		nil, // callBack (optional)
-		nil, // context
+		0,                         // flags: defaults (auto-rename on conflict)
+		0,                         // interfaceIndex: all interfaces
+		cinst,                     // name (instance)
+		creg,                      // regtype
+		nil,                       // domain: default (.local)
+		nil,                       // host: default hostname
+		C.htons(C.uint16_t(port)), // port — network byte order
+		0,                         // txtLen
+		nil,                       // txtRecord
+		nil,                       // callBack (NULL allowed for DNSServiceRegister)
+		nil,                       // context
 	)
 	if serr != C.kDNSServiceErr_NoError {
 		log.Printf("mDNS: Bonjour service registration failed (%d); A record stays registered", int32(serr))
 		// A-record registration already succeeded — keep it; the name will
 		// still resolve, only service discovery is missing.
-		bonjourRefs = append(bonjourRefs, aRef)
-		go bonjourProcess(aRef, name)
+		bonjourRefs = append(bonjourRefs, connRef)
+		go bonjourProcess(connRef, name)
 		return true
 	}
 
-	bonjourRefs = append(bonjourRefs, aRef, sRef)
-	go bonjourProcess(aRef, name)
+	bonjourRefs = append(bonjourRefs, connRef, sRef)
+	go bonjourProcess(connRef, name)
 	go bonjourProcess(sRef, name)
 	log.Printf("mDNS: registered %s.local — %s via Bonjour (macOS)", name, ip)
 	return true
+}
+
+// goRecordConflict is the //export'd callback invoked by mDNSResponder for
+// async registration events. A non-zero errorCode means the record was not
+// (or no longer) served — most commonly kDNSServiceErr_NameConflict.
+//
+//export goRecordConflict
+func goRecordConflict(sdRef C.DNSServiceRef, recordRef C.DNSRecordRef, flags C.DNSServiceFlags, errorCode C.DNSServiceErrorType, context unsafe.Pointer) {
+	if errorCode != C.kDNSServiceErr_NoError {
+		log.Printf("mDNS: Bonjour record error (code %d) — %s.local may not resolve; use localhost", int32(errorCode), bonjourName)
+	}
 }
 
 // bonjourProcess keeps a DNSServiceRef serviced. With no callbacks installed
