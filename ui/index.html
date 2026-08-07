@@ -127,6 +127,25 @@
 
       <!-- kept for JS compatibility — add-connection-form hidden marker -->
       <div id="add-connection-form" style="display:none" aria-hidden="true"></div>
+
+      <!-- Signed-in user + logout (bottom-left of the page) -->
+      <div class="sidebar-footer hidden" id="auth-footer">
+        <div class="divider"></div>
+        <div class="auth-chip">
+          <div class="auth-avatar" id="auth-avatar" aria-hidden="true"></div>
+          <div class="auth-info">
+            <div class="auth-name" id="auth-username"></div>
+            <div class="auth-role">Signed in</div>
+          </div>
+          <button id="logout-btn" class="auth-logout" title="Log out" aria-label="Log out">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </aside>
 
     <!-- ── Main Content ── -->
@@ -367,6 +386,34 @@
     </main>
   </div><!-- .app-body -->
 </div><!-- .app-shell -->
+
+<!-- ── View: Login (full-screen overlay, replaces the browser auth prompt) ── -->
+<div id="view-login" class="login-view hidden">
+  <div class="login-card">
+    <div class="login-brand">
+      <svg class="brand-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 2h14M5 22h14"/>
+        <path d="M7 2c0 6 5 8 5 10s-5 4-5 10"/>
+        <path d="M17 2c0 6-5 8-5 10s5 4 5 10"/>
+      </svg>
+      <span class="login-title">Hourglass</span>
+    </div>
+    <p class="login-sub">Sign in to manage cron jobs</p>
+
+    <form id="login-form" autocomplete="off">
+      <div class="f-field">
+        <label class="f-label" for="login-username">Username</label>
+        <input type="text" id="login-username" class="f-input" autocomplete="username" spellcheck="false" required>
+      </div>
+      <div class="f-field">
+        <label class="f-label" for="login-password">Password</label>
+        <input type="password" id="login-password" class="f-input" autocomplete="current-password" required>
+      </div>
+      <div id="login-error" class="login-error hidden"></div>
+      <button type="submit" id="login-submit" class="login-btn">Sign In</button>
+    </form>
+  </div>
+</div>
 
 <!-- Delete Confirmation Modal -->
 <div id="delete-modal" class="modal-overlay hidden">

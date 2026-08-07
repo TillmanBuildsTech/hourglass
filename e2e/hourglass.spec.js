@@ -5,9 +5,13 @@
 // jobs. Because the backend is single-admin, tests are serial (workers:1) and
 // each uses unique job names to stay independent.
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
 
 const HOST = process.env.HG_HOST || '127.0.0.1';
 const PORT = process.env.HG_PORT || '18080';
+// Read VERSION dynamically so the assertion never goes stale after a bump.
+const VERSION = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim();
 
 async function addJob(page, { schedule, command, comment }) {
   await page.getByRole('button', { name: 'Add New Job' }).click();
