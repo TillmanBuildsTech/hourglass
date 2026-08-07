@@ -21,7 +21,10 @@ test.describe('Hourglass UI', () => {
   test('loads the app and shows version + empty cron list (loopback, no auth)', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle('Hourglass — Crontab Manager');
-    await expect(page.locator('#app-version')).toHaveText('v0.10.1');
+    // Match whatever version the binary reports, so a VERSION bump doesn't
+    // break this test.
+    const v = await page.evaluate(() => fetch('/api/version').then(r => r.json()));
+    await expect(page.locator('#app-version')).toHaveText(`v${v.version}`);
     await expect(page.getByRole('heading', { name: 'Cron Jobs' })).toBeVisible();
     await expect(page.locator('#jobs-table .empty-cell')).toContainText('No cron jobs yet');
   });
