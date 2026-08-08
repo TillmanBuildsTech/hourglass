@@ -46,7 +46,7 @@ Gatekeeper won't flag it with a security warning.
 Download the latest binary for your platform from [GitHub Releases](https://github.com/TillmanBuildsTech/hourglass/releases):
 
 ```bash
-wget https://github.com/TillmanBuildsTech/hourglass/releases/download/v1.0.0/hourglass-linux-amd64
+wget https://github.com/TillmanBuildsTech/hourglass/releases/latest/download/hourglass-linux-amd64
 chmod +x hourglass-linux-amd64
 sudo mv hourglass-linux-amd64 /usr/local/bin/hourglass
 ```
@@ -56,7 +56,7 @@ sudo mv hourglass-linux-amd64 /usr/local/bin/hourglass
 Download the darwin binary:
 
 ```bash
-curl -L https://github.com/TillmanBuildsTech/hourglass/releases/download/v0.2.0/hourglass-darwin-amd64 -o hourglass
+curl -L https://github.com/TillmanBuildsTech/hourglass/releases/latest/download/hourglass-darwin-amd64 -o hourglass
 chmod +x hourglass
 sudo mv hourglass /usr/local/bin/
 ```
@@ -64,7 +64,7 @@ sudo mv hourglass /usr/local/bin/
 Or for Apple Silicon:
 
 ```bash
-curl -L https://github.com/TillmanBuildsTech/hourglass/releases/download/v0.2.0/hourglass-darwin-arm64 -o hourglass
+curl -L https://github.com/TillmanBuildsTech/hourglass/releases/latest/download/hourglass-darwin-arm64 -o hourglass
 chmod +x hourglass
 sudo mv hourglass /usr/local/bin/
 ```
@@ -76,7 +76,7 @@ sudo mv hourglass /usr/local/bin/
 Requires Go 1.21+:
 
 ```bash
-git clone https://github.com/brandontillman/hourglass.git
+git clone https://github.com/TillmanBuildsTech/hourglass.git
 cd hourglass
 go build -o hourglass .
 sudo mv hourglass /usr/local/bin/
@@ -503,6 +503,18 @@ does not merge local + remote jobs.
 - **History Shows Latest Run Only** — Hourglass keeps the most recent execution per job, not a full history log (the `~/.hourglass/history.log` file itself does accumulate every run until you rotate or clear it).
 - **No Clustering** — Each instance manages its own crontab.
 
+## Roadmap
+
+Planned work, roughly in priority order:
+
+- **Hardening for exposed instances** — rate limiting, CSRF protection, and an audit trail for cron changes (credentials are already auto-generated for LAN binds).
+- **Operational polish** — structured logging, graceful shutdown, and a deeper `/health` endpoint (crontab readability, history-log access, disk space).
+- **Backup & restore** — export/import of the crontab around writes (today: `crontab -l > backup.cron`).
+- **Native macOS launchd support** — manage launchd jobs in addition to crontab.
+- **Interactive schedule builder** — a guided form with natural-language confirmation and a preview of upcoming runs, so no cron syntax knowledge is needed.
+- **Job execution features** — dependency tracking, maintenance windows, email alerts on job failure.
+- **Clustering** — multiple instances coordinating on the same crontab (currently single-admin).
+
 ## Architecture
 
 **No External Dependencies** — Hourglass uses only Go stdlib:
@@ -510,7 +522,7 @@ does not merge local + remote jobs.
 - **HTTP Server:** `net/http`
 - **Crontab I/O:** `os/exec` (runs `crontab` command)
 - **Execution History:** Each managed job's command is wrapped so it appends its exit code and timestamp to `~/.hourglass/history.log`; Hourglass reads that file back (via the same local/SSH executor used for crontab I/O) instead of parsing system logs, since cron itself never reports exit codes to syslog.
-- **UI:** Single HTML file with inline CSS (Tailwind CDN) and vanilla JavaScript
+- **UI:** Single HTML shell with generated CSS/JS (Tailwind + vanilla JavaScript, built from `ui/src` via `npm run build` — no runtime dependencies)
 
 See [Design.md](Design.md) for detailed architecture decisions.
 

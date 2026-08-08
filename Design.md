@@ -107,7 +107,7 @@ type Execution struct {
 | `cron/parser.go` | Parse crontab text → Entry structs, validate schedules |
 | `cron/manager.go` | Read/write crontab via os/exec, error handling |
 | `cron/history.go` | **NEW:** Parse syslog (journalctl), extract execution history |
-| `ui/index.html` | Single-file frontend (Tailwind CDN + vanilla JS) |
+| `ui/index.html` | Single-file frontend shell (vanilla JS, Tailwind, built from `ui/src` via `npm run build`) |
 
 ---
 
@@ -457,7 +457,7 @@ HOURGLASS_AUTH_PASS=secretpass \
 - **Safety:** Read-before-write fallback
 - **Tests:** 87% coverage target
 
-**Next steps:** See `TODO.md` for implementation tasks.
+**Next steps:** Implementation is complete — see `README.md` for usage and its Roadmap section for planned work.
 
 ---
 

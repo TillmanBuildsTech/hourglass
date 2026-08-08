@@ -1,222 +1,135 @@
-# Hourglass: Self-Hosted Crontab UI
+# Hourglass — Self-Hosted Crontab Manager
 
-A lightweight, single-binary Go application for viewing and managing Linux crontab jobs from a web interface. Remote-accessible with optional VS Code integration.
+A lightweight, single-binary Go application for viewing and managing Linux/macOS crontab jobs from a web UI, with an MCP server for AI-agent access and SSH-remote connection management. Hourglass is a **shipped product, not a prototype**: it ships LAN-first zero-config defaults (mDNS + auto-generated credentials), local HTTPS for `hourglass.local`, automatic execution-history tracking, and CI/CD that publishes binaries on every version bump.
 
-## Project Overview
+**Stack:** Go 1.21+ (stdlib `net/http` only), vanilla HTML/CSS/JS (`ui/src` → `ui/dist` build step), Linux cron / macOS crontab via `os/exec`.
+**Deployment:** single ~8 MB binary; .deb/.rpm packages with a systemd unit; Homebrew tap for macOS; GitHub Actions auto-release.
+**Repo:** https://github.com/TillmanBuildsTech/hourglass
 
-**Stack:** Go 1.21+, vanilla HTML/JS/CSS (Tailwind CDN), Linux cron system
-**Deployment:** Single self-contained binary (~10MB, near-zero RAM/CPU at rest)
-**Use Case:** System administrators managing cron jobs remotely via web UI or VS Code
+## Repository Layout
 
-## Architecture
-
-### Directory Structure
 ```
-/hourglass
-├── main.go                    # Entire Go backend (API, routing, cron interface)
+├── main.go                 # Entrypoint: flags, wiring, routes, HTTP handlers
+├── auth.go                 # Session-cookie auth: public shell, gated API, middleware
+├── bind_security.go        # Auto-generated credentials + bind security enforcement
+├── tls.go                  # Local HTTPS: per-machine root CA for *.local names
+├── mdns.go                 # mDNS advertisement of hourglass.local (+ conflict auto-rename)
+├── redirect.go             # Same-port HTTP→HTTPS 308 redirect (sniffListener)
+├── bonjour_darwin.go       # macOS native Bonjour registration (cgo) — stub elsewhere
 ├── cron/
-│   ├── parser.go             # Parse crontab text to JSON structures
-│   ├── manager.go            # Read/write crontab via os/exec
-│   └── history.go            # Query system logs for job execution history
+│   ├── parser.go           # crontab text ⇄ Entry structs (validation, env lines, comments)
+│   ├── manager.go          # read/write/execute via the Executor; history wrapping
+│   └── history.go          # history.log parsing (RFC3339, exit code, status)
+├── ssh/client.go           # SSH executor — remote crontabs over SSH
+├── connection/config.go    # Saved connections (connections.json)
+├── mcp/                    # --mcp stdio MCP server (JSON-RPC 2.0, no SDK)
 ├── ui/
-│   └── index.html            # Single-file frontend (embedded in binary)
-├── go.mod                     # Module definition
-└── README.md                  # Deployment and usage guide
+│   ├── index.html          # SPA shell (embedded via go:embed)
+│   ├── src/                # source JS/CSS/icons — EDIT HERE
+│   └── dist/               # built output (gitignored; CI runs `npm run build`)
+├── e2e/                    # Playwright suite (isolated via FileExecutor)
+├── packaging/              # systemd unit, env file, package scripts
+└── VERSION                 # embedded version (see Versioning)
 ```
 
-### Tech Decisions
+## The Core Invariant: Everything Goes Through the Executor
 
-| Component | Choice | Why |
-|-----------|--------|-----|
-| Backend | Go net/http | No external framework deps, native embedded FS, single binary |
-| Frontend | Vanilla JS + Tailwind CDN | No build step, zero runtime bloat, responsive out of box |
-| System Interface | os/exec (crontab CLI) | Works cross-user, respects system crontab editor |
-| Binaries | Embedded via //go:embed | No static files to manage separately |
+`cron.Manager` operates on an `Executor` interface (`cron/manager.go`):
 
-## Development Phases
+- **Local:** `LocalExecutor` runs `crontab` via `os/exec` (honors `HOURGLASS_CRONTAB_USER` for multi-user targeting and `HOURGLASS_CRONTAB_FILE` for isolated tests).
+- **Remote:** the `ssh.Client` IS an executor. Switching connections (or restoring the saved active one at boot) calls `cronManager.SetExecutor(client)`.
 
-### Phase 1: Core System Interface
-- **Goal:** Safely read/write the Linux crontab
-- **Tasks:**
-  - `cron/manager.go`: Execute `crontab -l`, handle empty crontab error
-  - `cron/manager.go`: Pipe sanitized crontab text via `crontab -`
-  - `cron/parser.go`: Parse crontab format → cron.Entry structs (schedule, command, comment)
+The manager reads/writes the crontab AND history through the current executor — that is what makes SSH-remote connections transparent. **Any new feature that does its own `os/exec`/`os.ReadFile` on the local machine is broken for remote connections.** Touch the crontab, the history log, or anything on the job host only through the executor (or a new `Manager` method that does).
 
-**Key Structs:**
-```go
-type Entry struct {
-    ID       string // UUID for tracking
-    Schedule string // "* * * * *"
-    Command  string // Full command string
-    Comment  string // Descriptive comment
-    Active   bool   // true if uncommented
-}
-```
+## Execution History
 
-### Phase 2: REST API Endpoints
-- **Goal:** Expose lightweight HTTP API
-- **Port:** Default 8080
-- **Endpoints:**
-  - `GET /api/cron` → JSON array of cron.Entry
-  - `POST /api/cron` → Accept new config ([]Entry), save to crontab
-  - `GET /` → Serve embedded index.html
-  - `GET /health` → JSON health check (OK if crontab readable)
+- `WriteCrontab` wraps every active command so that at run time it appends `<unix-millis>\t<exit-code>\t<base64(cmd)>` to `~/.hourglass/history.log` **on the host that runs the job** (local or remote — `$HOME` is resolved on the job host).
+- `HistoryCache.Refresh(executor)` re-reads that file through the executor (for remote: SSH + `cat`). Runs on a 30s ticker and lazily on `GET /api/cron` when stale.
+- `GET /api/logs` decodes the raw records into RFC3339 timestamps + exit code + status + decoded command (newest first) via `cron.ParseHistoryLog`.
+- Jobs installed outside Hourglass aren't wrapped; `handleGetCron` auto-wraps untracked active jobs on first read (best-effort write).
 
-**Auth:** Optional flag for basic auth in remote mode (user:pass in env vars)
+## LAN-First Defaults (v0.13+)
 
-### Phase 3: Frontend UI
-- **File:** `ui/index.html` (single-file, embedded in binary)
-- **Layout:**
-  - Header: Title, sync status, auth check
-  - Table: List all cron jobs (schedule, command, status toggle)
-  - Form: Add/edit cron job (schedule, command, comment)
-  - Controls: Delete, run now (if safe), export config
-- **Styling:** Tailwind via CDN (responsive, dark/light mode toggle)
-- **Logic:** Vanilla JS fetch() to GET/POST to API
+- **Default bind is `0.0.0.0:8080`** so `hourglass.local` works out of the box from any device. Loopback is an explicit `HOURGLASS_BIND=127.0.0.1:8080`.
+- **Auto-generated credentials:** on a non-loopback bind with no `HOURGLASS_AUTH_USER/PASS`, a 16-hex-char password is generated, persisted to `~/.hourglass/auth.env` (0600), and printed at startup. Loopback binds stay auth-free.
+- **mDNS by default** advertises `hourglass.local` with probe-before-announce; on a name conflict it auto-renames to `<name>-2.local`, `<name>-3.local`, … (bounded). macOS brew/cgo builds register directly with `mDNSResponder` (Bonjour); Linux/Windows/CGO_ENABLED=0 builds use the built-in multicast responder.
+- **Local HTTPS:** a per-machine root CA (`~/.hourglass/tls/`) is generated and installed into the OS trust store so `https://hourglass.local` shows a valid lock (public CAs can't issue for `.local`). `HOURGLASS_TLS=auto` (default) falls back to plain HTTP if the CA can't be installed. Plain-HTTP requests to the TLS port get a 308 redirect to `https://` — `http://localhost:8080` just works. `/ca.pem` serves the public root CA so other LAN devices can trust it.
 
-**Security Flags:**
-- `--bind 127.0.0.1:8080` (default) → local-only, SSH tunnel mode
-- `--bind 0.0.0.0:8080` → remote accessible (requires auth)
+## Auth Model (v0.11+)
 
-### Phase 4: VS Code Extension (Future)
-- Not in MVP, but API is designed to support it
-- Extension will SSH port-forward to localhost:8080, no separate auth needed
+- **Public shell, gated API:** `/`, `/dist/*`, `/api/auth/*`, `/api/version`, and `/ca.pem` are public; every other `/api/*` route requires a valid session.
+- Session tokens are stateless HMAC-SHA256 cookies (`hg_session`, 7-day, HttpOnly, SameSite=Lax); the key persists at `~/.hourglass/auth.key` so logins survive restarts. Logout revokes server-side via an in-memory revocation map (a replayed cookie must not authenticate). Basic Auth remains a working fallback for curl/scripts.
+- The frontend shows an in-app login view on 401 — **never** send `WWW-Authenticate: Basic` on API 401s (it re-triggers the browser's native dialog).
+
+## REST API
+
+| Route | Methods | Notes |
+|---|---|---|
+| `/api/cron` | GET / POST / DELETE | list / add / delete jobs (GET may auto-wrap untracked jobs) |
+| `/api/cron/update` | POST | edit a job |
+| `/api/cron/toggle` | POST | enable / disable |
+| `/api/cron/execute` | POST | run a job now (synchronous) |
+| `/api/logs` | GET | decoded execution history |
+| `/api/connections` | GET / POST / DELETE | saved connections |
+| `/api/connections/active` | POST | switch the active connection |
+| `/api/connections/test` | POST | reachability check |
+| `/api/auth/login` `/api/auth/me` `/api/auth/logout` | POST / GET / POST | session auth |
+| `/api/version` | GET | version + GOOS |
+| `/ca.pem` | GET | public root CA |
+| `/` `/dist/*` | GET | SPA shell + static assets |
+
+## CLI
+
+- `hourglass` — web server
+- `hourglass --version` — print version, exit
+- `hourglass --mcp` — stdio MCP server (5 tools: list / create / update / delete cron jobs, validate schedule). Backed by the same `cron.Manager`, so the active connection, `HOURGLASS_CRONTAB_USER`, and `HOURGLASS_CRONTAB_FILE` all apply.
+- `hourglass -install-ca` — generate the local TLS CA (if needed) and install it into the OS trust store, then exit.
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HOURGLASS_BIND` | `0.0.0.0:8080` | Bind address. LAN-reachable by default so `hourglass.local` works; `127.0.0.1:8080` for loopback-only |
+| `HOURGLASS_AUTH_USER` / `HOURGLASS_AUTH_PASS` | (auto) | Credentials. Auto-generated + saved to `~/.hourglass/auth.env` on non-loopback binds when unset |
+| `HOURGLASS_ALLOW_INSECURE` | (none) | `1` serves without auth on non-loopback binds (dangerous — explicit opt-in) |
+| `HOURGLASS_MDNS` | `1` | Advertise `hourglass.local` (skipped on loopback binds; `0` disables) |
+| `HOURGLASS_MDNS_NAME` | `hourglass` | The `<name>` in `<name>.local` |
+| `HOURGLASS_TLS` | `auto` | Local HTTPS mode: `auto`, `1` (force HTTPS), `0` (plain HTTP) |
+| `HOURGLASS_CRONTAB_USER` | (none) | Manage a specific user's crontab via `crontab -u <user>` (requires root) — for root-run services whose jobs live under another account |
+| `HOURGLASS_CRONTAB_FILE` | (none) | Redirect crontab I/O to a plain file — **testing only** (isolates E2E from the real system crontab) |
 
 ## Code Conventions
 
 ### Go
-- **Error Handling:** Always wrap system errors with context, log to stderr
-- **Concurrency:** Single-threaded initially (crontab is not concurrent); add mutexes only if needed
-- **Naming:** Keep function names short, avoid abbreviations (`parseCrontab` not `parseCron`)
-- **Testing:** Each major function gets a test file (parser_test.go, manager_test.go)
+- **Error handling:** always wrap system errors with context, log to stderr.
+- **Naming:** short names, no abbreviations (`parseCrontab`, not `parseCron`).
+- **Testing:** each major function gets a test file (`*_test.go`). New methods get a test. Run `go test ./... -count=1`.
 
 ### Frontend
-- **No Build Step:** All CSS via Tailwind CDN, no bundler
-- **No Framework:** Vanilla JS (fetch, DOM manipulation, event listeners)
-- **State Management:** Keep data in memory; sync to API on change
-- **Accessibility:** Use semantic HTML, ARIA labels where needed
+- **A build step exists:** edit `ui/src/`, then `cd ui && npm run build` (terser + tailwindcss CLI → `ui/dist/`). `ui/dist/` is gitignored build output — never commit it; CI builds it.
+- Vanilla JS, no framework. State kept in memory, synced to the API. Semantic HTML + ARIA labels.
 
 ### Commit Messages
-Format: `type(scope): description`
-- `feat(cron): add job parsing from crontab text`
-- `fix(api): handle empty crontab gracefully`
-- `docs: update deployment guide`
-- `test(parser): add edge case coverage`
+`type(scope): description` — `feat(cron): …`, `fix(api): …`, `docs: …`, `test(parser): …`.
 
-### Versioning
-The app version lives in the `VERSION` file at the repo root (embedded into the binary via `go:embed`, exposed through `--version`, `GET /api/version`, and the UI header). **Bump it with every PR** — patch (`0.1.x`) for fixes/small changes, minor (`0.x.0`) for new features, major (`x.0.0`) for breaking changes.
+## Versioning
 
-## Environment Variables (Optional)
+`VERSION` file at the repo root, embedded via `go:embed`, exposed through `--version`, `GET /api/version`, and the UI header. **Bump it with every code PR** — patch (`0.14.x`) for fixes/small changes, minor (`0.x.0`) for new features, major (`x.0.0`) for breaking changes. Merging a VERSION bump to `main` triggers the auto-release workflow (tag → binaries/packages → Homebrew formula update). **Docs-only PRs should NOT bump VERSION** — that ships an empty release.
 
-```bash
-HOURGLASS_BIND=0.0.0.0:8080           # Bind address (default: 0.0.0.0:8080; LAN-reachable so hourglass.local works out of the box)
-HOURGLASS_AUTH_USER=admin             # Basic auth username
-HOURGLASS_AUTH_PASS=secretpass        # Basic auth password
-```
+## Testing
 
-## Deployment
-
-### Build
-```bash
-go build -o hourglass .
-```
-
-### Run (local only)
-```bash
-./hourglass
-# Open http://localhost:8080
-```
-
-### Run (remote with SSH tunnel)
-```bash
-HOURGLASS_BIND=0.0.0.0:8080 ./hourglass
-# On your machine: ssh -L 8080:localhost:8080 user@remote
-# Open http://localhost:8080
-```
-
-### Systemd Service (Optional)
-Create `/etc/systemd/system/hourglass.service`:
-```ini
-[Unit]
-Description=Hourglass Crontab Manager
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/hourglass
-Restart=on-failure
-Environment="HOURGLASS_BIND=127.0.0.1:8080"
-
-[Install]
-WantedBy=multi-user.target
-```
-
-## Testing Strategy
-
-- **Unit Tests:** Parser edge cases (duplicate schedules, malformed lines)
-- **Integration Tests:** Mock crontab binary, test read/write flows
-- **Manual QA:** Test on actual Linux system (macOS has differences)
+- **Unit:** parser edge cases, manager read/write flows (fake `crontab` on PATH), history parsing, auth/session, TLS cert lifecycle, mDNS wire payloads, redirect behavior, MCP handlers (in-memory executor). Current coverage: `cron` ~80%, `ssh` ~88%, `connection` ~94%, `mcp` ~83%.
+- **E2E (Playwright, `e2e/`):** `bash e2e/run.sh`. Isolated from the real system crontab via `HOURGLASS_CRONTAB_FILE` (FileExecutor) + scratch `HOME` + loopback bind + `HOURGLASS_MDNS=0 HOURGLASS_TLS=0`.
+- **CI (`build.yml`):** `go test -v -cover ./...` on linux + macOS × Go 1.21/1.22 (macOS runs with cgo enabled — the only place the Bonjour cgo code compiles), then cross-compiles linux/darwin × amd64/arm64. `auto-release.yml` tags + releases on VERSION bumps to `main`.
 
 ## Known Limitations
 
-1. **macOS:** System crontab location differs; MVP targets Linux only
-2. **User Switching:** Only manages current user's crontab (no sudo yet)
-3. **Real-Time Execution:** Does NOT run jobs; only schedules them
-4. **Concurrency:** No job locks; assume single admin editing at a time
+- **Single admin** — no locking; concurrent edits can overwrite each other (documented, first-write-wins).
+- **macOS** — crontab is fully supported; native `launchd` job management is a planned future feature.
+- **Windows** — unsupported (no crontab).
+- **Managed-jobs history only** — jobs added via `crontab -e` aren't wrapped until saved through Hourglass.
+- **No clustering** — each instance manages its own crontab.
 
-## Success Criteria for MVP
+## Roadmap
 
-- [ ] Go binary compiles to <15MB single file
-- [ ] Can read any valid system crontab
-- [ ] Can add/edit/delete jobs via API
-- [ ] Frontend UI loads in <1s
-- [ ] Graceful error handling for permission issues
-- [ ] Works on Ubuntu 20.04 LTS (primary target)
-
-## GSTACK REVIEW REPORT
-
-**Review Date:** 2026-07-09  
-**Review Type:** Engineering Review (Architecture + Test Coverage)  
-**Status:** CLEARED — Proceed with implementation
-
-### Scope Decisions
-- **Distribution:** Include GitHub Actions CI/CD for cross-platform builds (linux/darwin amd64/arm64)
-- **Platform:** Linux-only MVP; macOS support deferred to post-launch
-- **Concurrency:** No locking (single-admin assumption; first-write-wins)
-- **Permissions:** Current user only (no sudo/root escalation in MVP)
-- **Errors:** User-friendly messages from API
-
-### Architecture Decisions
-- **Schedule Validation:** Add pre-write validation layer (prevents invalid schedules from reaching system)
-- **Write Safety:** Implement read-before-write with fallback (protects against data loss)
-- **API Versioning:** Start with `/api/cron`, refactor to `/v1/` if needed later
-
-### Test Coverage
-- **Completeness:** 87% code path coverage, 80% user flow coverage (13/15 paths tested)
-- **Quality:** 8 full tests (happy + error), 4 edge cases, 1 smoke test
-- **Strategy:** Unit tests (parser, manager), E2E tests (user flows), mocked system calls
-
-### Critical Issues Resolved
-1. ✅ Added schedule validation (prevents "99 * * * *" type errors)
-2. ✅ Added read-before-write safety (prevents silent data corruption)
-3. ✅ Defined error handling strategy (user-friendly messages)
-4. ✅ Locked concurrency model (no locking; document single-admin constraint)
-
-### Known Risks & Mitigations
-| Risk | Impact | Mitigation |
-|------|--------|-----------|
-| Concurrent writes overwrite | Data loss | Document as single-admin tool; roadmap future locking |
-| No macOS support | Platform gap | Intentional deferral; architecture supports it |
-| crontab daemon down | Service unavailable | Catch error, return 500 + message to user |
-| Disk full on write | Data loss risk | Read-before-write catches this scenario |
-
-### Implementation Order
-**Phase 1 (Critical):** T1-T5 (core features + tests)  
-**Phase 2 (Support):** T6-T7 (CI/CD + docs)  
-**Phase 3 (Future):** T8 (macOS support)
-
-**Estimated timeline:** ~16h human + ~90min CC total. Parallelizable: T1 + T4 in separate branches.
-
-### VERDICT
-✅ **CLEARED — Architecture is sound, test coverage is complete, risk mitigations in place. Ready to implement.**
+The public roadmap lives in README.md; open items include exposed-instance hardening (rate limiting, CSRF), structured logging + graceful shutdown, a deeper `/health` endpoint, backup/restore, native launchd support, and an interactive schedule builder. See the README Roadmap section for the full list.
