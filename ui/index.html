@@ -89,16 +89,9 @@
           <div id="connections-items"></div>
         </div>
       </div>
+    </div>
 
-      <!-- Local-only info note -->
-      <div id="local-only-message" class="info-note hidden">
-        Running on localhost — this instance is private, not exposed to the network.<br>
-        You can still manage a remote instance over an SSH tunnel — the service can stay bound to localhost (never 0.0.0.0) and the UI connection is encrypted through the tunnel:<br>
-        <code>ssh -L 8080:localhost:8080 user@server</code><br>
-        <a href="#" onclick="switchView('help');return false;" style="color:var(--gold)">See Help for the full guide</a>
-      </div>
-
-      <div class="divider"></div>
+    <div class="divider"></div>
 
       <div class="sidebar-section">
         <button id="add-conn-btn" class="sidebar-btn">

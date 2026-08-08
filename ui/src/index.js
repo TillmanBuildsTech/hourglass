@@ -350,13 +350,9 @@ function detectLocalBinding() {
     const host = window.location.hostname;
     isLocalOnly = host === 'localhost' || host === '127.0.0.1';
 
-    if (isLocalOnly) {
-        document.getElementById('local-only-message').classList.remove('hidden');
-        document.getElementById('add-conn-btn').style.display = 'none';
-    } else {
-        document.getElementById('local-only-message').classList.add('hidden');
-        document.getElementById('add-conn-btn').style.display = '';
-    }
+    // On localhost, remote connections can only be reached via an SSH tunnel,
+    // so hide the direct "Add Connection" entry point.
+    document.getElementById('add-conn-btn').style.display = isLocalOnly ? 'none' : '';
 }
 
 async function loadConnections() {
