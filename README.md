@@ -172,6 +172,22 @@ itself over mDNS (Bonjour) so `http://hourglass.local:8080` resolves from any
 device on the network. The advertised name defaults to `hourglass`
 (`HOURGLASS_MDNS_NAME` to override); disable with `HOURGLASS_MDNS=0`.
 
+**Same-host access:** the HTTPS endpoint is served on the same port it binds,
+and plain-HTTP requests to that port are auto-redirected to `https://`. So
+`http://localhost:8080`, `http://192.168.1.241:8080`, and
+`http://hourglass.local:8080` all land on the valid HTTPS endpoint (the TLS
+cert covers `hourglass.local`, `localhost`, `127.0.0.1`, and `::1`).
+
+**How the name is advertised, per build:**
+- **macOS via Homebrew (cgo build):** registers `hourglass.local` directly
+  with the system `mDNSResponder` (the Bonjour API), so the Mac itself AND
+  other LAN devices resolve it — the same-host mDNS loopback quirk does not
+  apply. Conflict handling is done by the OS.
+- **Linux, Windows, and CGO_ENABLED=0 release binaries:** a self-contained
+  multicast responder advertises `<name>.local` to other LAN devices. The
+  host itself uses `localhost` (covered by the TLS cert) — macOS
+  `mDNSResponder` may not resolve the host's own `.local` announcement.
+
 If another device on the LAN is already answering `<name>.local` (e.g. a
 second Hourglass, or the same name in use by another service), Hourglass
 probes for the conflict on startup and advertises as `<name>-2.local`,

@@ -53,6 +53,14 @@ func startMDNS(addr string, secure bool) {
 		name = "hourglass"
 	}
 
+	// Prefer native OS registration (macOS Bonjour via cgo builds): the OS
+	// then owns the name, so the host itself AND the LAN resolve it, and
+	// conflict detection is handled by mDNSResponder. Falls back to the
+	// self-contained multicast responder below.
+	if tryBonjourRegister(name, ip, port, secure) {
+		return
+	}
+
 	r := &mdnsResponder{
 		instance: "Hourglass",
 		name:     name,
