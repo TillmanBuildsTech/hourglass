@@ -33,6 +33,35 @@ test.describe('Hourglass UI', () => {
     await expect(page.locator('#jobs-table .empty-cell')).toContainText('No cron jobs yet');
   });
 
+  test('sidebar keeps its full pre-removal structure without the local-only note', async ({ page }) => {
+    await page.goto('/');
+
+    // The removed info note (and its CSS class) must not exist at all.
+    await expect(page.locator('#local-only-message')).toHaveCount(0);
+    await expect(page.locator('.info-note')).toHaveCount(0);
+
+    // Regression lock for the v0.14.1 sidebar-layout break: the connection
+    // manager section, dividers, Add Connection / Help / View Logs sections
+    // and the auth footer must all remain direct children of the sidebar in
+    // the original order — no stray </div> may shift or re-parent them.
+    const kids = await page.locator('#connections-panel > *').evaluateAll(
+      els => els.map(el => el.id || el.className)
+    );
+    expect(kids).toEqual([
+      'sidebar-top',
+      'sidebar-section',
+      'divider',
+      'sidebar-section',
+      'divider',
+      'sidebar-section',
+      'divider',
+      'sidebar-section',
+      'connections-close',
+      'add-connection-form',
+      'auth-footer',
+    ]);
+  });
+
   test('adds a job and it appears with Never status', async ({ page }) => {
     await page.goto('/');
     await addJob(page, { schedule: '0 9 * * *', command: 'echo hello', comment: 'My Backup' });
