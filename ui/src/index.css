@@ -341,24 +341,6 @@ body {
 .sidebar-btn.muted { color: var(--text-2); }
 .sidebar-btn.muted:hover { background: var(--surface-alt); color: var(--text); }
 
-.info-note {
-  margin: 4px 12px 8px;
-  padding: 9px 11px;
-  background: rgba(59,130,246,.07);
-  border: 1px solid rgba(59,130,246,.18);
-  border-radius: var(--radius);
-  font-size: 11px;
-  color: var(--text-2);
-  line-height: 1.55;
-}
-.info-note code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 10px;
-  background: rgba(59,130,246,.1);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
 /* ── Main Content ── */
 .main-content {
   flex: 1;
