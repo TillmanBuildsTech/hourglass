@@ -169,6 +169,75 @@ func TestFileExecutorRoundTrip(t *testing.T) {
 	}
 }
 
+// crontabListExecutor emulates the real `crontab -l` / `crontab - << 'EOF'`
+// round trip faithfully: a heredoc write leaves a trailing newline in the
+// stored crontab (as the real `crontab -` does), and reads return it (as the
+// real `crontab -l` output does). This is what makes blank-line accumulation
+// reproducible — the file-backed FileExecutor strips the trailing newline on
+// write, so it cannot reproduce the bug.
+type crontabListExecutor struct {
+	crontab string
+}
+
+func (e *crontabListExecutor) Execute(command string) (string, error) {
+	if command == "crontab -l" {
+		if e.crontab == "" {
+			return "", fmt.Errorf("no crontab found or permission denied")
+		}
+		return e.crontab + "\n", nil
+	}
+
+	if strings.HasPrefix(command, "crontab - << 'EOF'") {
+		start := strings.Index(command, "\n")
+		end := strings.LastIndex(command, "\nEOF")
+		if start == -1 || end == -1 || end < start {
+			return "", fmt.Errorf("malformed heredoc")
+		}
+		text := command[start+1 : end]
+		e.crontab = text + "\n"
+		return "", nil
+	}
+
+	return "", nil
+}
+
+// TestWriteCrontabRoundTripStable guards against blank-line accumulation: the
+// trailing newline of `crontab -l` output is captured as a preserved blank
+// line and, if re-emitted verbatim, grows the crontab by one blank line on
+// every write. The written text must be byte-identical across round trips.
+func TestWriteCrontabRoundTripStable(t *testing.T) {
+	exec := &crontabListExecutor{crontab: "# header\nPATH=/usr/bin:/bin\n# comment\n\n0 9 * * * /usr/bin/job.sh\n"}
+	m := NewManagerWithExecutor(exec)
+
+	roundTrip := func() string {
+		entries, err := m.GetEntries()
+		if err != nil {
+			t.Fatalf("GetEntries: %v", err)
+		}
+		if len(entries) != 1 || entries[0].Command != "/usr/bin/job.sh" {
+			t.Fatalf("unexpected entries: %+v", entries)
+		}
+		if err := m.WriteCrontab(entries); err != nil {
+			t.Fatalf("WriteCrontab: %v", err)
+		}
+		return exec.crontab
+	}
+
+	first := roundTrip()
+	for i := 0; i < 3; i++ {
+		if got := roundTrip(); got != first {
+			t.Fatalf("crontab changed across round trips:\n--- first ---\n%q\n--- after %d more ---\n%q", first, i+1, got)
+		}
+	}
+
+	if strings.Contains(first, "\n\n\n") {
+		t.Errorf("crontab still contains a run of 2+ blank lines: %q", first)
+	}
+	if strings.HasPrefix(first, "\n") || strings.HasSuffix(first, "\n\n") {
+		t.Errorf("crontab has leading/trailing blank lines: %q", first)
+	}
+}
+
 func TestManagerAddEntry(t *testing.T) {
 	entry := Entry{
 		Schedule: "0 9 * * *",
