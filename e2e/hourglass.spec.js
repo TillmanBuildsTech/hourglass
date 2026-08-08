@@ -116,7 +116,7 @@ test.describe('Hourglass UI', () => {
     await page.goto('/');
     // A slow command keeps /api/cron/execute pending long enough to observe
     // the row-level loading bar (gold→green bar flush to the row bottom).
-    await addJob(page, { schedule: '* * * * *', command: 'sleep 2', comment: 'Slowpoke' });
+    await addJob(page, { schedule: '* * * * *', command: 'sleep 3', comment: 'Slowpoke' });
 
     const row = page.locator('tr.job-row', { hasText: 'Slowpoke' });
     await row.locator('button[aria-label="Run now"]').click();
@@ -126,6 +126,20 @@ test.describe('Hourglass UI', () => {
     await expect(row).toHaveClass(/running/);
     await expect(row.locator('.job-run-bar')).toBeVisible();
     await expect(row.locator('button[aria-label="Run now"]')).toBeDisabled();
+
+    // The busy wash must be ONE continuous gradient painted on the row, not
+    // per cell — cells stay transparent so the sweep doesn't restart in every
+    // column (regression lock for the whole-row gradient fix).
+    const wash = await page.evaluate(() => {
+      const r = document.querySelector('tr.job-row.running');
+      const tdBg = new Set([...r.querySelectorAll('td')].map(td => getComputedStyle(td).backgroundImage));
+      return {
+        rowBg: getComputedStyle(r).backgroundImage,
+        transparentCells: tdBg.size === 1 && tdBg.has('none'),
+      };
+    });
+    expect(wash.rowBg).toContain('linear-gradient');
+    expect(wash.transparentCells).toBe(true);
 
     // Once the request settles: bar gone, button re-enabled, status recorded.
     await expect(row).not.toHaveClass(/running/);
