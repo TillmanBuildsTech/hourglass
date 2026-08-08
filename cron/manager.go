@@ -338,12 +338,36 @@ func (m *Manager) WriteCrontab(entries []Entry) error {
 	} else if len(m.preserved) > 0 {
 		text = strings.Join(m.preserved, "\n")
 	}
-	// Drop trailing blank lines left by the file's final newline so repeated
-	// read/write round-trips don't accumulate empty lines.
+	// Collapse runs of blank lines to at most one and drop trailing blank
+	// lines so repeated read/write round-trips don't accumulate empty lines:
+	// `crontab -l` output ends with a newline, which PreserveNonEntryLines
+	// captures as a trailing blank that would otherwise be re-inserted as a
+	// fresh interior blank line on every write.
+	text = collapseBlankRuns(text)
 	text = strings.TrimRight(text, "\n")
 	cmd := fmt.Sprintf("crontab - << 'EOF'\n%s\nEOF", text)
 	_, err := m.executor.Execute(cmd)
 	return err
+}
+
+// collapseBlankRuns reduces any run of two or more consecutive blank lines to
+// a single blank line. Cron ignores blank lines, so this only affects
+// cosmetics, but it keeps the file stable across many write round-trips.
+func collapseBlankRuns(s string) string {
+	var b strings.Builder
+	newlines := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			newlines++
+			if newlines > 2 {
+				continue
+			}
+		} else {
+			newlines = 0
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 func (m *Manager) GetEntries() ([]Entry, error) {

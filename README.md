@@ -271,6 +271,8 @@ This starts Hourglass in stdio JSON-RPC mode instead of the web UI — it's mean
 
 Indices come from `list_cron_jobs` and can shift after any add/delete, so agents should re-list before acting on a stale index.
 
+**Local and remote:** the MCP server uses the same `cron.Manager` as the web UI and restores the saved active connection before entering MCP mode. If the active connection is a remote SSH host, every tool operates on that host's crontab; switch back to Local (or to a different connection) and the same tools follow. `HOURGLASS_CRONTAB_USER` and `HOURGLASS_CRONTAB_FILE` also apply in MCP mode.
+
 ### Claude Desktop / Claude Code
 
 Add Hourglass to your MCP client's config (e.g. `claude_desktop_config.json`, or via `claude mcp add`):
@@ -285,6 +287,40 @@ Add Hourglass to your MCP client's config (e.g. `claude_desktop_config.json`, or
   }
 }
 ```
+
+### Hermes Agent
+
+Add it under `mcp_servers` in `~/.hermes/config.yaml` (any profile you run — `hermes config path` shows the active file):
+
+```yaml
+mcp_servers:
+  hourglass:
+    command: /usr/local/bin/hourglass
+    args: ["--mcp"]
+    timeout: 120
+    connect_timeout: 60
+    enabled: true
+```
+
+Verify the connection from the terminal, then start a new session (MCP tools load at session startup):
+
+```bash
+hermes mcp list                # hourglass should appear
+hermes mcp test hourglass      # "Connected", 5 tools discovered
+```
+
+Tools show up as `mcp__hourglass__list_cron_jobs`, `mcp__hourglass__create_cron_job`, `mcp__hourglass__update_cron_job`, `mcp__hourglass__delete_cron_job`, `mcp__hourglass__validate_cron_schedule`.
+
+### Example agent interactions
+
+Once connected, an AI agent can be asked, in plain language:
+
+- *"List my cron jobs"* → `list_cron_jobs`
+- *"Add a job to back up the database every day at 2am"* → `create_cron_job` with `0 2 * * *`
+- *"Disable the enrichment job"* → `update_cron_job` with `inactive: true`
+- *"Is `99 99 * * *` valid?"* → `validate_cron_schedule` (rejected before anything is written)
+
+The tools run the same schedule validation and read-before-write safety as the web UI, so a bad schedule is caught before it reaches the system crontab.
 
 ## Configuration
 
