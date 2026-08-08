@@ -22,8 +22,14 @@ const runningJobs = new Set();
 function syncThemeIcon() {
     const isDark = document.documentElement.dataset.theme === 'dark'
         || (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.getElementById('icon-sun').style.display  = isDark ? 'none' : '';
-    document.getElementById('icon-moon').style.display = isDark ? ''     : 'none';
+    // The icon shows the mode you'd switch TO: a sun in dark mode (click to
+    // go light), a moon in light mode (click to go dark).
+    document.getElementById('icon-sun').style.display  = isDark ? '' : 'none';
+    document.getElementById('icon-moon').style.display = isDark ? 'none' : '';
+    const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    const toggle = document.getElementById('theme-toggle');
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
 }
 
 document.getElementById('theme-toggle').addEventListener('click', () => {

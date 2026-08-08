@@ -603,11 +603,12 @@ table.jobs-table {
 /* ── Running job: pending-execution loading bar ── */
 /* The /api/cron/execute request stays pending until the job finishes, so the
    row shows a gold→green bar flush to its bottom while it's in flight. The
-   row is position:relative so the bar can span the full row width; a subtle
-   gradient wash on the cells makes the whole row read as "busy". */
+   row is position:relative so the bar can span the full row width. The subtle
+   gradient wash is painted on the ROW (not the cells) so it reads as one
+   continuous sweep across the table instead of restarting in every column. */
 .job-row.running { position: relative; }
-.job-row.running td {
-  background: linear-gradient(90deg, rgba(200,168,71,.06), rgba(34,197,94,.06));
+.jobs-table tbody tr.job-row.running {
+  background: linear-gradient(90deg, rgba(200,168,71,.07), rgba(34,197,94,.07));
 }
 .job-run-bar {
   position: absolute;
@@ -1156,6 +1157,25 @@ table.jobs-table {
   border-color: rgba(239,68,68,.35);
   color: var(--red);
 }
+
+/* ── Page footer: copyright (bottom of the page) ── */
+.app-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--text-3);
+  border-top: 1px solid var(--border-soft);
+  background: var(--header-bg);
+}
+.app-footer a {
+  color: var(--text-2);
+  text-decoration: none;
+}
+.app-footer a:hover { color: var(--gold); }
 
 /* ── Utility ── */
 .hidden { display: none !important; }
