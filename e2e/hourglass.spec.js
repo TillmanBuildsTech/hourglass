@@ -40,26 +40,55 @@ test.describe('Hourglass UI', () => {
     await expect(page.locator('#local-only-message')).toHaveCount(0);
     await expect(page.locator('.info-note')).toHaveCount(0);
 
-    // Regression lock for the v0.14.1 sidebar-layout break: the connection
-    // manager section, dividers, Add Connection / Help / View Logs sections
-    // and the auth footer must all remain direct children of the sidebar in
-    // the original order — no stray </div> may shift or re-parent them.
+    // Regression lock for the sidebar-layout breaks: the connection manager
+    // sections, ONE divider between them and the Help / View Logs links, ONE
+    // divider above the auth footer, and the auth footer must all remain
+    // direct children of the sidebar in the original order — no stray </div>
+    // may shift or re-parent them, and no extra dividers may creep back in.
     const kids = await page.locator('#connections-panel > *').evaluateAll(
       els => els.map(el => el.id || el.className)
     );
     expect(kids).toEqual([
       'sidebar-top',
       'sidebar-section',
-      'divider',
       'sidebar-section',
       'divider',
       'sidebar-section',
-      'divider',
       'sidebar-section',
       'connections-close',
       'add-connection-form',
       'auth-footer',
     ]);
+    await expect(page.locator('#connections-panel .divider')).toHaveCount(2);
+  });
+
+  test('shows the TillmanBuildsTech copyright footer at the bottom of the page', async ({ page }) => {
+    await page.goto('/');
+
+    const footer = page.locator('.app-footer');
+    await expect(footer).toBeVisible();
+    await expect(footer).toContainText('©');
+    await expect(footer).toContainText('TillmanBuildsTech.com');
+    await expect(footer.locator('a[href="https://tillmanbuildstech.com"]')).toHaveCount(1);
+  });
+
+  test('theme toggle shows the action icon: moon in light mode, sun in dark mode', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('hg-theme', 'light'));
+    await page.goto('/');
+
+    const toggle = page.locator('#theme-toggle');
+    // Light mode: the moon icon promises "switch to dark".
+    await expect(page.locator('#icon-moon')).toBeVisible();
+    await expect(page.locator('#icon-sun')).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-label', 'Switch to dark mode');
+
+    await toggle.click();
+
+    // Dark mode: the sun icon promises "switch to light".
+    await expect(page.locator('#icon-sun')).toBeVisible();
+    await expect(page.locator('#icon-moon')).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-label', 'Switch to light mode');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   });
 
   test('adds a job and it appears with Never status', async ({ page }) => {
