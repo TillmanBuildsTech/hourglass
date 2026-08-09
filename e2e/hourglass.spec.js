@@ -71,6 +71,8 @@ test.describe('Hourglass UI', () => {
     await expect(copyright).toBeVisible();
     await expect(copyright).toHaveText('© 2026 TillmanBuildsTech.com');
     await expect(copyright.locator('a')).toHaveCount(0);
+    // Centered under the main view (not bottom-right).
+    await expect(copyright).toHaveCSS('text-align', 'center');
 
     // Sits flush at the bottom of the main content column.
     const box = await copyright.boundingBox();

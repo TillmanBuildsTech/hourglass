@@ -1158,13 +1158,13 @@ table.jobs-table {
   color: var(--red);
 }
 
-/* ── Copyright: plain text at the bottom of the main view ── */
+/* ── Copyright: plain text centered under the main view ── */
 .main-copyright {
   flex-shrink: 0;
   padding: 4px 16px 8px;
   font-size: 10px;
   color: var(--text-3);
-  text-align: right;
+  text-align: center;
 }
 
 /* ── Utility ── */
