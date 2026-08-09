@@ -1158,24 +1158,14 @@ table.jobs-table {
   color: var(--red);
 }
 
-/* ── Page footer: copyright (bottom of the page) ── */
-.app-footer {
+/* ── Copyright: plain text centered under the main view ── */
+.main-copyright {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px 16px;
-  font-size: 11px;
+  padding: 4px 16px 8px;
+  font-size: 10px;
   color: var(--text-3);
-  border-top: 1px solid var(--border-soft);
-  background: var(--header-bg);
+  text-align: center;
 }
-.app-footer a {
-  color: var(--text-2);
-  text-decoration: none;
-}
-.app-footer a:hover { color: var(--gold); }
 
 /* ── Utility ── */
 .hidden { display: none !important; }

@@ -62,14 +62,22 @@ test.describe('Hourglass UI', () => {
     await expect(page.locator('#connections-panel .divider')).toHaveCount(2);
   });
 
-  test('shows the TillmanBuildsTech copyright footer at the bottom of the page', async ({ page }) => {
+  test('shows the TillmanBuildsTech copyright as plain text at the bottom of the main view', async ({ page }) => {
     await page.goto('/');
 
-    const footer = page.locator('.app-footer');
-    await expect(footer).toBeVisible();
-    await expect(footer).toContainText('©');
-    await expect(footer).toContainText('TillmanBuildsTech.com');
-    await expect(footer.locator('a[href="https://tillmanbuildstech.com"]')).toHaveCount(1);
+    // No separate footer bar and no link — just text inside the main area.
+    await expect(page.locator('.app-footer')).toHaveCount(0);
+    const copyright = page.locator('main .main-copyright');
+    await expect(copyright).toBeVisible();
+    await expect(copyright).toHaveText('© 2026 TillmanBuildsTech.com');
+    await expect(copyright.locator('a')).toHaveCount(0);
+    // Centered under the main view (not bottom-right).
+    await expect(copyright).toHaveCSS('text-align', 'center');
+
+    // Sits flush at the bottom of the main content column.
+    const box = await copyright.boundingBox();
+    const mainBox = await page.locator('main').boundingBox();
+    expect(Math.abs((box.y + box.height) - (mainBox.y + mainBox.height))).toBeLessThan(2);
   });
 
   test('theme toggle shows the action icon: moon in light mode, sun in dark mode', async ({ page }) => {
